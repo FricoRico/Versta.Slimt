@@ -13,10 +13,7 @@ set(CMAKE_VISIBILITY_INLINE_HIDDEN YES)
 option(WITH_ASAN "Enable AddressSanitizer in builds" OFF)
 option(WITH_TESTS "Enable building tests (requires a few extra libraries)" OFF)
 
-option(WITH_INTGEMM "Use intgemm" OFF)
-option(WITH_RUY "Use ruy" OFF)
-option(WITH_GEMMOLOGY "Use gemmology" ON)
-option(WITH_BLAS "Use BLAS. Otherwise moves to ruy" ON)
+option(WITH_RUY "Use ruy" ON)
 
 option(SLIMT_USE_INTERNAL_PCRE2 "Use external PCRE2, not system" OFF)
 option(USE_BUILTIN_SENTENCEPIECE "Use SentencePiece supplied as 3rd-party" ON)
@@ -56,7 +53,6 @@ set(SLIMT_PUBLIC_LIBS "")
 set(SLIMT_INTERFACE_LIBS "")
 set(SLIMT_PRIVATE_LIBS "")
 set(SLIMT_COMPILE_DEFINITIONS "")
-set(SLIMT_QMM_COMPILE_OPTIONS "")
 set(SLIMT_LINK_OPTIONS "")
 
 if(WITH_ASAN)
@@ -89,79 +85,28 @@ if(NOT USE_BUILTIN_SENTENCEPIECE)
   list(APPEND SLIMT_PRIVATE_LIBS SentencePiece::Protobuf)
 endif(NOT USE_BUILTIN_SENTENCEPIECE)
 
-if(WITH_BLAS)
-  find_package(BLAS REQUIRED)
-
-  # The above defines BLAS::BLAS only one recent cmakes, the following code
-  # detects if the target is available if not creates an alias target.
-  if(BLAS_FOUND AND NOT TARGET BLAS::BLAS)
-    add_library(BLAS::BLAS INTERFACE IMPORTED)
-    set_target_properties(
-      BLAS::BLAS PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${BLAS_INCLUDE_DIR} "
-                            INTERFACE_LINK_LIBRARIES "${BLAS_LIBRARIES}")
-  endif()
-
-  list(APPEND SLIMT_PRIVATE_LIBS BLAS::BLAS)
-  set(SLIMT_COMPILE_DEFINITIONS ${SLIMT_COMPILE_DEFINITIONS} SLIMT_HAS_BLAS)
-
-  if(APPLE)
-    set(BLAS_VENDOR "Accelerate")
-    # see https://developer.apple.com/documentation/accelerate for more info you
-    # may need to install Xcode command line tools if you don't have them
-    # already (https://developer.apple.com/xcode/features/)
-    add_library(apple_accelerate INTERFACE)
-    target_link_libraries(apple_accelerate INTERFACE "-framework Accelerate")
-    # https://stackoverflow.com/a/58304566
-    target_include_directories(
-      apple_accelerate
-      INTERFACE
-        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/System/Library/Frameworks/Accelerate.framework/Frameworks/vecLib.framework/Headers"
-    )
-    add_library(AppleLibs::accelerate ALIAS apple_accelerate)
-    list(APPEND SLIMT_PRIVATE_LIBS AppleLibs::accelerate)
-  endif(APPLE)
-endif(WITH_BLAS)
-
-if(WITH_INTGEMM)
-  list(APPEND SLIMT_PRIVATE_LIBS intgemm)
-  list(APPEND SLIMT_COMPILE_DEFINITIONS SLIMT_HAS_INTGEMM)
-  list(APPEND SLIMT_COMPILE_OPTIONS -march=native)
-endif(WITH_INTGEMM)
-
-if(WITH_RUY)
-  list(APPEND SLIMT_COMPILE_DEFINITIONS SLIMT_HAS_RUY)
-  list(APPEND SLIMT_PRIVATE_LIBS ruy)
-endif(WITH_RUY)
-
-if(WITH_GEMMOLOGY)
-  find_package(xsimd REQUIRED)
-  add_library(gemmology INTERFACE)
-  target_link_libraries(gemmology INTERFACE xsimd)
-  target_include_directories(gemmology
-                             INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/3rd-party")
-  list(APPEND SLIMT_PRIVATE_LIBS gemmology)
-  list(APPEND SLIMT_COMPILE_DEFINITIONS SLIMT_HAS_GEMMOLOGY)
-endif(WITH_GEMMOLOGY)
+# Single ruy backend (other backends removed).
+list(APPEND SLIMT_COMPILE_DEFINITIONS SLIMT_HAS_RUY)
+list(APPEND SLIMT_PRIVATE_LIBS ruy)
 
 if(USE_AVX512)
   list(APPEND SLIMT_COMPILE_DEFINITIONS USE_AVX512)
-  list(APPEND SLIMT_QMM_COMPILE_OPTIONS -mavx512f -mavx512dq -mavx512cd
-       -mavx512bw)
+  list(APPEND SLIMT_COMPILE_OPTIONS -mavx512f -mavx512dq -mavx512cd -mavx512bw)
 endif(USE_AVX512)
 
 if(USE_AVX2)
   list(APPEND SLIMT_COMPILE_DEFINITIONS USE_AVX2)
-  list(APPEND SLIMT_QMM_COMPILE_OPTIONS -mavx2)
+  list(APPEND SLIMT_COMPILE_OPTIONS -mavx2)
 endif(USE_AVX2)
 
 if(USE_SSE2)
   list(APPEND SLIMT_COMPILE_DEFINITIONS USE_SSE2)
-  list(APPEND SLIMT_QMM_COMPILE_OPTIONS -msse2)
+  list(APPEND SLIMT_COMPILE_OPTIONS -msse2)
 endif(USE_SSE2)
 
 if(USE_SSSE3)
   list(APPEND SLIMT_COMPILE_DEFINITIONS USE_SSSE3)
-  list(APPEND SLIMT_QMM_COMPILE_OPTIONS -mssse3)
+  list(APPEND SLIMT_COMPILE_OPTIONS -mssse3)
 endif(USE_SSSE3)
 
 if(USE_NEON)

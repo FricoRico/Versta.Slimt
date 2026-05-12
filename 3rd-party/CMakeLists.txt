@@ -39,13 +39,6 @@ else(USE_BUILTIN_SENTENCEPIECE)
   add_library(SentencePiece::Protobuf ALIAS sentencepiece_pb)
 endif(USE_BUILTIN_SENTENCEPIECE)
 
-# intgemm
-if(WITH_INTGEMM)
-  set(INTGEMM_DONT_BUILD_TESTS ON)
-  add_subdirectory(intgemm EXCLUDE_FROM_ALL)
-endif(WITH_INTGEMM)
-
+# intgemm (removed backend)
 # ruy
-if(WITH_RUY)
-  add_subdirectory(ruy EXCLUDE_FROM_ALL)
-endif(WITH_RUY)
+add_subdirectory(ruy EXCLUDE_FROM_ALL)

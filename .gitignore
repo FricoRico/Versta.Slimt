@@ -55,3 +55,5 @@ dist
 # Java compiled stuff
 *.class
 
+# Jetbrains IDE
+.idea

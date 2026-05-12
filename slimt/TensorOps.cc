@@ -4,23 +4,9 @@
 #include <cstdint>
 #include <string>
 
+#include "slimt/Simd.hh"
 #include "slimt/Tensor.hh"
-
-#ifdef SLIMT_HAS_BLAS
-
-#ifdef __cplusplus
-extern "C" {
-#endif  // __cplusplus
-
-#include <cblas.h>
-
-#ifdef __cplusplus
-}
-#endif  // __cplusplus
-
-#else  // SLIMT_HAS_BLAS
 #include "ruy/ruy.h"
-#endif  // SLIMT_HAS_BLAS
 
 #include <algorithm>
 #include <cassert>
@@ -279,18 +265,110 @@ void add_positional_embedding(const float* word_embedding,
   }
 }
 
-void softmax(float* logits, size_t batch_size, size_t num_classes, float* out) {
-#ifdef VEXT_W8_AVAILABLE
-  if (num_classes % VDatum<VExt::w8>::kWidth == 0) {
-    vext::softmax<VExt::w8>(logits, batch_size, num_classes, out);
-    return;
+size_t argmax(const float* x, size_t n) {
+#ifdef USE_AVX2
+  // AVX2 8-wide: maintain (max_value, max_index) lane-pair, advance index
+  // counter by 8 each iteration, blend on greater-than mask.
+  constexpr size_t kWidth = 8;
+  if (n >= kWidth) {
+    __m256 vmax = _mm256_loadu_ps(x);
+    __m256i vidx = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+    __m256i vinc = _mm256_set1_epi32(static_cast<int32_t>(kWidth));
+    __m256i vcurr = _mm256_setr_epi32(8, 9, 10, 11, 12, 13, 14, 15);
+
+    size_t aligned = (n / kWidth) * kWidth;
+    for (size_t i = kWidth; i < aligned; i += kWidth) {
+      __m256 v = _mm256_loadu_ps(x + i);
+      __m256 mask = _mm256_cmp_ps(v, vmax, _CMP_GT_OS);
+      vmax = _mm256_blendv_ps(vmax, v, mask);
+      vidx = _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(vidx),
+                                                  _mm256_castsi256_ps(vcurr),
+                                                  mask));
+      vcurr = _mm256_add_epi32(vcurr, vinc);
+    }
+
+    alignas(32) float maxv[kWidth];
+    alignas(32) int32_t idxs[kWidth];
+    _mm256_store_ps(maxv, vmax);
+    _mm256_store_si256(reinterpret_cast<__m256i*>(idxs), vidx);
+
+    size_t best_idx = static_cast<size_t>(idxs[0]);
+    float best = maxv[0];
+    for (size_t k = 1; k < kWidth; ++k) {
+      if (maxv[k] > best) {
+        best = maxv[k];
+        best_idx = static_cast<size_t>(idxs[k]);
+      }
+    }
+    for (size_t i = aligned; i < n; ++i) {
+      if (x[i] > best) {
+        best = x[i];
+        best_idx = i;
+      }
+    }
+    return best_idx;
+  }
+#elif defined(USE_NEON)
+  constexpr size_t kWidth = 4;
+  if (n >= kWidth) {
+    float32x4_t vmax = vld1q_f32(x);
+    static const int32_t kInit[4] = {0, 1, 2, 3};
+    static const int32_t kInitNext[4] = {4, 5, 6, 7};
+    int32x4_t vidx = vld1q_s32(kInit);
+    int32x4_t vcurr = vld1q_s32(kInitNext);
+    int32x4_t vinc = vdupq_n_s32(static_cast<int32_t>(kWidth));
+
+    size_t aligned = (n / kWidth) * kWidth;
+    for (size_t i = kWidth; i < aligned; i += kWidth) {
+      float32x4_t v = vld1q_f32(x + i);
+      uint32x4_t mask = vcgtq_f32(v, vmax);
+      vmax = vbslq_f32(mask, v, vmax);
+      vidx = vreinterpretq_s32_u32(vbslq_u32(
+          mask, vreinterpretq_u32_s32(vcurr), vreinterpretq_u32_s32(vidx)));
+      vcurr = vaddq_s32(vcurr, vinc);
+    }
+
+    alignas(16) float maxv[kWidth];
+    alignas(16) int32_t idxs[kWidth];
+    vst1q_f32(maxv, vmax);
+    vst1q_s32(idxs, vidx);
+
+    size_t best_idx = static_cast<size_t>(idxs[0]);
+    float best = maxv[0];
+    for (size_t k = 1; k < kWidth; ++k) {
+      if (maxv[k] > best) {
+        best = maxv[k];
+        best_idx = static_cast<size_t>(idxs[k]);
+      }
+    }
+    for (size_t i = aligned; i < n; ++i) {
+      if (x[i] > best) {
+        best = x[i];
+        best_idx = i;
+      }
+    }
+    return best_idx;
   }
 #endif
-#ifdef VEXT_W4_AVAILABLE
-  if (num_classes % VDatum<VExt::w4>::kWidth == 0) {
-    vext::softmax<VExt::w4>(logits, batch_size, num_classes, out);
-    return;
+  size_t best_idx = 0;
+  float best = x[0];
+  for (size_t i = 1; i < n; ++i) {
+    if (x[i] > best) {
+      best = x[i];
+      best_idx = i;
+    }
   }
+  return best_idx;
+}
+
+void softmax(float* logits, size_t batch_size, size_t num_classes, float* out) {
+#ifdef VEXT_W8_AVAILABLE
+  vext::softmax<VExt::w8>(logits, batch_size, num_classes, out);
+  return;
+#endif
+#ifdef VEXT_W4_AVAILABLE
+  vext::softmax<VExt::w4>(logits, batch_size, num_classes, out);
+  return;
 #endif
 
   for (size_t i = 0; i < batch_size; i++) {
@@ -316,7 +394,6 @@ void softmax(float* logits, size_t batch_size, size_t num_classes, float* out) {
 
 // NOLINTBEGIN
 enum class Provider {
-  BLAS,
   Ruy,
 };
 // NOLINTEND
@@ -332,68 +409,6 @@ void matrix_multiply(              //
     float* C, size_t ldc           //
 );
 
-#ifdef SLIMT_HAS_BLAS
-template <>
-void matrix_multiply<Provider::BLAS>(  //
-    bool trans_a, bool trans_b,        //
-    size_t m, size_t n, size_t k,      //
-    float alpha,                       //
-    const float* A, size_t lda,        //
-    const float* B, size_t ldb,        //
-    float beta,                        //
-    float* C, size_t ldc) {
-  // clang-format off
-  //
-  //  4. m
-  //     Specifies the number of rows of the matrix op(A) and of the matrix C.
-  //     The value of m at least zero.
-  //  5. n
-  //     Specifies the number of columns of the matrix op(B) and the number of
-  //     columns of the matrix C. The value of n at least zero.
-  //  6. k
-  //     Specifies the number of columns of the matrix op(A) and the number of
-  //     rows of the matrix op(B). The value of k at least zero.
-  //
-  //  9. lda
-  //                    |  transa=CblasNoTrans   |  transa=CblasTrans 
-  //      CblasColMajor | lda at least max(1, m).|   lda at least max(1, k)
-  //      CblasRowMajor | lda at least max(1, k) |   lda at least max(1, m).
-  //
-  // 11. ldb
-  //                    | transb=CblasNoTrans     | transb=CblasTrans
-  //     CblasColMajorA | ldb at least max(1, k). | ldb at least max(1, n).
-  //     CblasRowMajor  | ldb at least max(1, n). | ldb at least max(1, k).
-  //
-  // 14. ldc
-  //
-  //      CblasColMajor | ldc must be at least max(1, m).
-  //      CblasRowMajor | ldc must be at least max(1, n).
-  //
-  // clang-format on
-
-  CBLAS_TRANSPOSE c_trans_a = trans_a ? CblasTrans : CblasNoTrans;
-  CBLAS_TRANSPOSE c_trans_b = trans_b ? CblasTrans : CblasNoTrans;
-
-  // Consider matrices A [rows_a x cols_a], B[rows_b x cols_b]
-  // A and B are not necessarily compatible for multiplication.
-  //
-  // op(A) * op(B) must be compatible for matrix multiplication, where op is
-  // transpose or no-transpose (identity) indicated by bools trans_a and
-  // trans_b.
-
-  cblas_sgemm(                              //
-      CblasRowMajor, c_trans_a, c_trans_b,  // Layout, op(A), op(B)
-      m, n, k,                              //
-      alpha,                                //
-      A, lda, B, ldb,                       //
-      beta,                                 //
-      C, ldc                                //
-  );
-}
-
-constexpr Provider kChosenProvider = Provider::BLAS;
-
-#else
 template <>
 inline void matrix_multiply<Provider::Ruy>(  //
     bool transA, bool transB,                //
@@ -406,7 +421,12 @@ inline void matrix_multiply<Provider::Ruy>(  //
   (void)lda;
   (void)ldb;
   (void)ldc;
-  ruy::Context context;
+  // Cache one ruy::Context per worker thread. Constructing it per call burns
+  // ~5 % of inference wall time on `Ctx::SelectPath` (CpuInfo + getenv) which
+  // never changes after first init. ruy::Context is documented as
+  // thread-compatible (one per consumer thread) and keeps its internal
+  // thread-pool warm across calls.
+  thread_local ruy::Context context;
 
   // If we need to transpose, we can swap dimensions in layout claim the matrix
   // is just column-major. Set ordering so transpose.
@@ -420,6 +440,11 @@ inline void matrix_multiply<Provider::Ruy>(  //
   ruy::Matrix<float> rhs;
   ruy::MakeSimpleLayout(K, N, orderB, rhs.mutable_layout());
   rhs.set_data(B);
+  // No pack-caching here: B in this path is SDPA's K/V (heap-allocated per
+  // decode and freed at decode end). Ruy keys its prepacked cache on the
+  // src data pointer, so a freed-and-reallocated buffer at the same heap
+  // address would silently return a stale pack, producing garbage logits.
+  // Only `affine<Ruy>` (where RHS is a model-lifetime weight) caches.
 
   ruy::Matrix<float> dst;
   ruy::MakeSimpleLayout(M, N, ruy::Order::kRowMajor, dst.mutable_layout());
@@ -474,6 +499,53 @@ inline void matrix_multiply<Provider::Ruy>(  //
 
 constexpr Provider kChosenProvider = Provider::Ruy;
 
+#if defined(USE_NEON)
+namespace {
+// c[j] = alpha * dot(a[0..k), b + j*k)  for j in [0, n).
+// op(B) column-major (trans_b): output column j is a contiguous length-k row.
+void gemv_dot(const float* a, const float* b, size_t n, size_t k, float alpha,
+              float* c) {
+  for (size_t j = 0; j < n; ++j) {
+    const float* bj = b + j * k;
+    float32x4_t acc0 = vdupq_n_f32(0.0F);
+    float32x4_t acc1 = vdupq_n_f32(0.0F);
+    size_t p = 0;
+    for (; p + 8 <= k; p += 8) {
+      acc0 = vmlaq_f32(acc0, vld1q_f32(a + p), vld1q_f32(bj + p));
+      acc1 = vmlaq_f32(acc1, vld1q_f32(a + p + 4), vld1q_f32(bj + p + 4));
+    }
+    for (; p + 4 <= k; p += 4) {
+      acc0 = vmlaq_f32(acc0, vld1q_f32(a + p), vld1q_f32(bj + p));
+    }
+    float s = vaddvq_f32(vaddq_f32(acc0, acc1));
+    for (; p < k; ++p) s += a[p] * bj[p];
+    c[j] = alpha * s;
+  }
+}
+
+// c[j] = alpha * sum_p a[p] * b[p*n + j]  for j in [0, n).
+// op(B) row-major: accumulate each contraction row p scaled by a[p].
+void gemv_acc(const float* a, const float* b, size_t n, size_t k, float alpha,
+              float* c) {
+  size_t j = 0;
+  for (; j + 4 <= n; j += 4) vst1q_f32(c + j, vdupq_n_f32(0.0F));
+  for (; j < n; ++j) c[j] = 0.0F;
+  for (size_t p = 0; p < k; ++p) {
+    const float32x4_t va = vdupq_n_f32(a[p]);
+    const float* bp = b + p * n;
+    for (j = 0; j + 4 <= n; j += 4) {
+      vst1q_f32(c + j, vmlaq_f32(vld1q_f32(c + j), va, vld1q_f32(bp + j)));
+    }
+    for (; j < n; ++j) c[j] += a[p] * bp[j];
+  }
+  if (alpha != 1.0F) {
+    for (j = 0; j + 4 <= n; j += 4) {
+      vst1q_f32(c + j, vmulq_n_f32(vld1q_f32(c + j), alpha));
+    }
+    for (; j < n; ++j) c[j] *= alpha;
+  }
+}
+}  // namespace
 #endif
 
 void batch_matrix_multiply(const float* A, const float* B, size_t batch_size,
@@ -513,6 +585,25 @@ void batch_matrix_multiply(const float* A, const float* B, size_t batch_size,
 
   float beta = 0.0;
 
+#if defined(USE_NEON)
+  // Decode-time fast path: query_length == 1 makes each per-head matmul a
+  // gemv. Ruy would pack both operands and run its 8-row kernel to produce a
+  // single row — almost all wasted. A direct gemv skips packing entirely.
+  if (m == 1 && !trans_a) {
+    for (size_t i = 0; i < batch_size; ++i) {
+      const float* a = A + i * stride_a;
+      const float* b = B + i * stride_b;
+      float* c = C + i * stride_c;
+      if (trans_b) {
+        gemv_dot(a, b, n, k, alpha, c);
+      } else {
+        gemv_acc(a, b, n, k, alpha, c);
+      }
+    }
+    return;
+  }
+#endif
+
   for (size_t i = 0; i < batch_size; ++i) {
     const float* a = A + i * stride_a;
     const float* b = B + i * stride_b;
@@ -549,6 +640,19 @@ void layer_norm(const float* in, const float* scale, const float* bias,
   //
   // Implementation lifted from:
   // https://github.com/browsermt/marian-dev/blob/7cf2159bc4e9c0c337aa38270081d941c9e59c26/src/tensors/cpu/tensor_operators.cpp#L1103
+
+#ifdef VEXT_W8_AVAILABLE
+  if (cols % VDatum<VExt::w8>::kWidth == 0) {
+    vext::layer_norm<VExt::w8>(in, scale, bias, eps, rows, cols, out);
+    return;
+  }
+#endif
+#ifdef VEXT_W4_AVAILABLE
+  if (cols % VDatum<VExt::w4>::kWidth == 0) {
+    vext::layer_norm<VExt::w4>(in, scale, bias, eps, rows, cols, out);
+    return;
+  }
+#endif
 
   for (size_t j = 0; j < rows; ++j) {
     const float* x = in + j * cols;
@@ -655,6 +759,56 @@ Tensor layer_norm(const Tensor& x, const Tensor& scale, const Tensor& bias,
   return y;
 }
 
+void layer_norm_add(const float* a, const float* b, const float* scale,
+                    const float* bias, float eps, size_t rows, size_t cols,
+                    float* out) {
+#ifdef VEXT_W8_AVAILABLE
+  if (cols % VDatum<VExt::w8>::kWidth == 0) {
+    vext::layer_norm_add<VExt::w8>(a, b, scale, bias, eps, rows, cols, out);
+    return;
+  }
+#endif
+#ifdef VEXT_W4_AVAILABLE
+  if (cols % VDatum<VExt::w4>::kWidth == 0) {
+    vext::layer_norm_add<VExt::w4>(a, b, scale, bias, eps, rows, cols, out);
+    return;
+  }
+#endif
+
+  for (size_t j = 0; j < rows; ++j) {
+    const float* a_row = a + j * cols;
+    const float* b_row = b + j * cols;
+    float* y = out + j * cols;
+
+    float sum = 0.0F;
+    for (size_t i = 0; i < cols; ++i) sum += a_row[i] + b_row[i];
+    float mean = sum / cols;
+
+    float square_sum_centered = 0.0F;
+    for (size_t i = 0; i < cols; ++i) {
+      float v = (a_row[i] + b_row[i]) - mean;
+      square_sum_centered += v * v;
+    }
+    float sigma = std::sqrt(square_sum_centered / cols + eps);
+
+    for (size_t i = 0; i < cols; ++i) {
+      y[i] = scale[i] * (((a_row[i] + b_row[i]) - mean) / sigma) + bias[i];
+    }
+  }
+}
+
+Tensor layer_norm_add(const Tensor& a, const Tensor& b, const Tensor& scale,
+                      const Tensor& bias, float EPS /*= 1e-6F*/) {
+  Tensor y = a.like("ln_out");
+  size_t cols = a.dim(-1);
+  size_t rows = a.size() / cols;
+
+  layer_norm_add(a.data<float>(), b.data<float>(),       //
+                 scale.data<float>(), bias.data<float>(),  //
+                 EPS, rows, cols, y.data<float>());
+  return y;
+}
+
 Tensor operator+(const Tensor& x, const Tensor& y) { return add(x, y); }
 Tensor operator-(const Tensor& x, const Tensor& y) { return sub(x, y); }
 Tensor operator*(const Tensor& x, const Tensor& y) { return mul(x, y); }
@@ -670,6 +824,19 @@ Tensor highway(const Tensor& x, const Tensor& y, const Tensor& g) {
   const auto* tg = g.data<float>();
   auto* out = c_t.data<float>();
   size_t size = x.size();
+
+#ifdef VEXT_W8_AVAILABLE
+  if (size % VDatum<VExt::w8>::kWidth == 0) {
+    vext::highway<VExt::w8>(tx, ty, tg, size, out);
+    return c_t;
+  }
+#endif
+#ifdef VEXT_W4_AVAILABLE
+  if (size % VDatum<VExt::w4>::kWidth == 0) {
+    vext::highway<VExt::w4>(tx, ty, tg, size, out);
+    return c_t;
+  }
+#endif
 
   for (size_t i = 0; i < size; i++) {
     float sg = sigmoid(tg[i]);

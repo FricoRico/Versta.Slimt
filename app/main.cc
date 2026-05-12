@@ -34,7 +34,6 @@ struct Options {
   slimt::Model::Config model;
 
   bool async = false;
-  bool html = false;
   bool version = false;
 
   template <class App>
@@ -54,7 +53,6 @@ struct Options {
 
     app.add_option("--poll", poll, "Seconds to poll a long request to report");
     app.add_flag("--version", version, "Display version");
-    app.add_flag("--html", html, "Whether content is HTML");
     app.add_flag("--async", async, "Try async backend");
 
     service.setup_onto(app);
@@ -108,8 +106,7 @@ void run(const Options &options) {
 
     std::string source = read_from_stdin();
     slimt::Options opts{
-        .alignment = true,    //
-        .html = options.html  //
+        .alignment = true,
     };
 
     Handle handle = (!follow)
@@ -173,8 +170,7 @@ void run(const Options &options) {
 
     std::string source = read_from_stdin();
     slimt::Options opts{
-        .alignment = true,    //
-        .html = options.html  //
+        .alignment = true,
     };
 
     auto responses = service.translate(model, {std::move(source)}, opts);
