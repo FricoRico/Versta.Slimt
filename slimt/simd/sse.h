@@ -323,6 +323,9 @@ struct Ops<VExt::w4> {
   static Datum add(const Datum& lhs, const Datum& rhs) { return _mm_add_ps(lhs, rhs); }
   static Datum mul(const Datum& lhs, const Datum& rhs) { return _mm_mul_ps(lhs, rhs); }
   static Datum div(const Datum& lhs, const Datum& rhs) { return _mm_div_ps(lhs, rhs); }
+
+  static Datum loadu(const Scalar* ptr)                { return _mm_loadu_ps(ptr); }
+  static void  storeu(Scalar* ptr, const Datum& v)     { _mm_storeu_ps(ptr, v); }
   // clang-format on
 
   static Datum sigmoid(const Datum& x) {

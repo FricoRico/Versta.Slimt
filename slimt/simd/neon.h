@@ -139,6 +139,9 @@ struct Ops<VExt::w4> {
   static Datum add(const Datum& lhs, const Datum& rhs) { return vaddq_f32(lhs, rhs); }
   static Datum mul(const Datum& lhs, const Datum& rhs) { return vmulq_f32(lhs, rhs); }
   static Datum div(const Datum& lhs, const Datum& rhs) { return vdivq_f32(lhs, rhs); }
+
+  static Datum loadu(const Scalar* ptr)                { return vld1q_f32(ptr); }
+  static void  storeu(Scalar* ptr, const Datum& v)     { vst1q_f32(ptr, v); }
   // clang-format on
 
   static Datum sigmoid(const Datum& x) {

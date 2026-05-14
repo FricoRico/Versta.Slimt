@@ -205,6 +205,9 @@ struct Ops<VExt::w8> {
   static Datum add(const Datum& lhs, const Datum& rhs) { return _mm256_add_ps(lhs, rhs); }
   static Datum mul(const Datum& lhs, const Datum& rhs) { return _mm256_mul_ps(lhs, rhs); }
   static Datum div(const Datum& lhs, const Datum& rhs) { return _mm256_div_ps(lhs, rhs); }
+
+  static Datum loadu(const Scalar* ptr)                { return _mm256_loadu_ps(ptr); }
+  static void  storeu(Scalar* ptr, const Datum& v)     { _mm256_storeu_ps(ptr, v); }
   // clang-format on
 
   static Datum sigmoid(const Datum& x) {
