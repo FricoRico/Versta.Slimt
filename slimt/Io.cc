@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -23,11 +24,27 @@ namespace slimt::io {
 
 namespace {
 
-template <typename Element, typename ReadHead = void*>
-Element* emit(ReadHead& read_head, uint64_t size = 1) {
-  auto* begin = reinterpret_cast<Element*>(read_head);
-  Element* end = begin + size;
-  read_head = reinterpret_cast<void*>(end);
+template <typename Element>
+Element read(void*& read_head) {
+  Element value;
+  std::memcpy(&value, read_head, sizeof(Element));
+  read_head = static_cast<char*>(read_head) + sizeof(Element);
+  return value;
+}
+
+template <typename Element>
+std::vector<Element> read_vector(void*& read_head, uint64_t size) {
+  std::vector<Element> values(size);
+  if (size > 0) {
+    std::memcpy(values.data(), read_head, size * sizeof(Element));
+  }
+  read_head = static_cast<char*>(read_head) + size * sizeof(Element);
+  return values;
+}
+
+char* read_bytes(void*& read_head, uint64_t size) {
+  auto* begin = static_cast<char*>(read_head);
+  read_head = begin + size;
   return begin;
 }
 
@@ -43,7 +60,7 @@ enum class TypeClass : size_t {
   avx2_type     = 0x1000, // processor-specific layout for avx2, currently used for FBGEMM only
   avx512_type   = 0x2000, // processor-specific layout for avx512, currently used for FBGEMM only
 
-  intgemm_type = 0x4000, // intgemm quantized architecture agnostic models
+  intgemm_type = 0x4000, // legacy intgemm-format quantized models
 
 
   size_mask     = 0x00FF,
@@ -79,8 +96,8 @@ enum class OGType : size_t {
   packed8avx2   = TypeClass::packed_type + 1u + TypeClass::avx2_type,   // special type for FBGEMM with AVX2, not meant to be used anywhere else, not meant to be accessed invidually. Internal actual type (uint8) is meaningless.
   packed8avx512 = TypeClass::packed_type + 1u + TypeClass::avx512_type, // special type for FBGEMM with AVX512, not meant to be used anywhere else, not meant to be accessed invidually. Internal actual type (uint8) is meaningless.
 
-  intgemm8      = TypeClass::signed_type + 1u + TypeClass::intgemm_type, // Int8 quantized (not packed) matrices for intgemm
-  intgemm16     = TypeClass::signed_type + 2u + TypeClass::intgemm_type // Int16 quantized (not packed) matrices for intgemm
+  intgemm8      = TypeClass::signed_type + 1u + TypeClass::intgemm_type, // legacy int8 quantized matrices
+  intgemm16     = TypeClass::signed_type + 2u + TypeClass::intgemm_type // legacy int16 quantized matrices
 };
 
 // clang-format on
@@ -96,8 +113,9 @@ Type intercept(uint64_t value) {
     case OGType::float32:
       return Type::f32;
     default:
-      std::cerr << "Incompatible type.\n";
-      std::abort();
+      throw std::runtime_error(
+          "[slimt] model file contains an incompatible tensor type (" +
+          std::to_string(value) + ")");
   }
 }
 
@@ -112,18 +130,18 @@ void set_item(Item& item, Aligned&& aligned) {
 }
 
 std::vector<io::Item> load_items(void* current) {
-  uint64_t binary_file_version = *emit<uint64_t>(current);
+  uint64_t binary_file_version = read<uint64_t>(current);
   if (binary_file_version != kBinaryFileVersion) {
-    std::cerr << "Binary file versions do not match: ";
-    std::cerr << binary_file_version << "(file) != ";
-    std::cerr << kBinaryFileVersion << " (expected)";
-
-    std::abort();
+    throw std::runtime_error(
+        "[slimt] model file binary version mismatch: file is v" +
+        std::to_string(binary_file_version) + ", slimt expects v" +
+        std::to_string(kBinaryFileVersion) +
+        " (re-download or regenerate the model)");
   }
 
   // Read number of headers and based on the information, the headers.
-  uint64_t num_headers = *emit<uint64_t>(current);
-  Header* headers = emit<Header>(current, num_headers);  // NOLINT
+  uint64_t num_headers = read<uint64_t>(current);
+  std::vector<Header> headers = read_vector<Header>(current, num_headers);
 
   // prepopulate items with meta data from headers
   std::vector<io::Item> items;
@@ -133,7 +151,7 @@ std::vector<io::Item> load_items(void* current) {
 
     // Can someone explain the -1? Remains a mystery to me.
     size_t length = headers[i].name_length;
-    char* name = emit<char>(current, length);
+    char* name = read_bytes(current, length);
     items[i].name = std::string(name, length - 1);
   }
 
@@ -142,44 +160,82 @@ std::vector<io::Item> load_items(void* current) {
     Item& item = items[i];
 
     uint64_t size = headers[i].shape_length;
-    int* shape = emit<int>(current, size);
+    std::vector<int> shape = read_vector<int>(current, size);
 
     // This copy has to be incurred, because metadata.
-    item.shape.set(shape, shape + size);
+    item.shape.set(shape.data(), shape.data() + shape.size());
   }
 
   // move by offset bytes, aligned to 256-bytes boundary
-  uint64_t offset = *emit<uint64_t>(current);
-  emit<char>(current, offset);
+  uint64_t offset = read<uint64_t>(current);
+  read_bytes(current, offset);
 
-  // Keep an extra item for embedding processed.
+  // Keep extra items for the int8-prepared (PrepareB-form) versions of any
+  // embeddings that double as the decoder output projection. For shared-vocab
+  // models that's a single `Wemb_intgemm8`. For two-vocab models with
+  // separate `decoder_Wemb`, that's `decoder_Wemb_intgemm8`. Encoder-only
+  // embeddings (`encoder_Wemb`) don't need a PrepareB form since they're
+  // never used as a GEMM B-matrix.
   Item embedding_processed;
+  Item decoder_embedding_processed;
+
+  // Recognises the three embedding tensor names slimt knows about. Anything
+  // else with name ending in "_QuantMultA" stays a quantization-multiplier
+  // marker (no-op view); other ig8 tensors are GEMM B-matrices that need
+  // PrepareBQuantizedTransposed.
+  auto is_embedding_name = [](const std::string& name) {
+    return name == "Wemb" || name == "encoder_Wemb" || name == "decoder_Wemb";
+  };
+  auto is_quant_mult_a_marker = [](const std::string& name) {
+    return name == "Wemb_QuantMultA" ||
+           name == "encoder_Wemb_QuantMultA" ||
+           name == "decoder_Wemb_QuantMultA";
+  };
 
   for (uint64_t i = 0; i < num_headers; ++i) {
     Item& item = items[i];
     uint64_t size = headers[i].data_length;
-    char* ptr = emit<char>(current, size);
+    char* ptr = read_bytes(current, size);
     // We're about to read-data.
     // We can either make it point to mmap, which is aligned,
     // or we can create a new aligned.
     if (item.type == Type::ig8) {
       // since Embedding layer quantized weights need to be dequantised, we
-      // have a special case for items containing the name "Wemb"
-      if (item.name == "Wemb_QuantMultA") {
-        // Wemb_QuantMultA hints at this being the quantization multiplier for
-        // when we have to process at linear multiply on embedding.  However,
-        // this value does not hold anything useful.
+      // have a special case for the embedding tensors. Two-vocab models
+      // (en-zh, en-ja, ...) have separate `encoder_Wemb` / `decoder_Wemb`;
+      // single-vocab models have a single `Wemb`. The handling is the same:
+      // unquantize the int8 storage to float for embedding lookup, and (for
+      // the embedding that doubles as the decoder output projection) also
+      // produce a PrepareB-prepared int8 alias for the GEMM.
+      if (is_quant_mult_a_marker(item.name)) {
+        // `*_Wemb_QuantMultA` tensors aren't empty placeholders despite
+        // their shape-[1,1] size — marian stores them in the ig8 layout
+        // (`shape.elements()` int8 values followed by the f32 `quantMult`)
+        // and `marian-dev/.../integer_common.h::unquantizeWemb` reads them
+        // back as `alpha[i] = int8[i] / quantMult`. For these alpha
+        // tensors that's one int8 (=127, the saturated post-quantize value)
+        // plus the multiplier, which un-quantizes to the original
+        // calibrated activation alpha (≈4–8 for tiny11 bergamot models).
+        //
+        // We only need to materialize the value for `decoder_Wemb_QuantMultA`
+        // — on shared-vocab models the same alpha is also shipped as a
+        // real f32 `none_QuantMultA` that the parameter map already
+        // consumes, and `encoder_Wemb` is an embedding-lookup-only tensor
+        // with no output-projection GEMM. Drop those by clearing the name;
+        // for `decoder_Wemb_QuantMultA` (the only source on two-vocab
+        // models like en-ja / zh_hant-en) un-quantize and store as f32.
+        size_t num_elements = item.shape.elements();
+        char* mult_addr = ptr + num_elements;
+        float quant_mult;
+        std::memcpy(&quant_mult, mult_addr, sizeof(float));
 
-        // It is `none_QuantMultA` of type `float32` that holds the useful
-        // quantization multiplier.
-
-        // Pointing to this, that's all, mostly a no-op and prevents falling
-        // into the other branch.
-        item.view = View{
-            .data = ptr,  //
-            .size = size  //
-        };
-      } else if (item.name == "Wemb") {  // NOLINT
+        Aligned aligned(kAlignWidth, sizeof(float));
+        auto* out = reinterpret_cast<float*>(aligned.data());
+        out[0] =
+            static_cast<float>(reinterpret_cast<int8_t*>(ptr)[0]) / quant_mult;
+        set_item(item, std::move(aligned));
+        item.type = Type::f32;
+      } else if (is_embedding_name(item.name)) {  // NOLINT
         size_t num_elements = item.shape.elements();
         // At the end of items is the quantization multiplier.So we do some
         // pointer arithmetic to move ahead of the elements to extract the
@@ -203,27 +259,35 @@ std::vector<io::Item> load_items(void* current) {
         size_t cols = item.shape.dim(-1);
         assert((rows * cols) % 8 == 0);
 
-        // PrepareB and write.
-        embedding_processed.name = "Wemb_intgemm8";
-        embedding_processed.shape = Shape({cols, rows});
-        embedding_processed.type = Type::i8;
-        size_t prepared_size =
-            embedding_processed.shape.elements() * sizeof(int8_t) +
-            sizeof(float);
-        Aligned embedding_aligned(kAlignWidth, prepared_size);
-        auto* prepared = reinterpret_cast<int8_t*>(embedding_aligned.data());
-        qmm::prepare_weight_transposed(weights, prepared,
-                                       quantization_multiplier, cols, rows);
+        // Decide which name the PrepareB-form alias should take. Skip the
+        // alias entirely for `encoder_Wemb` — encoder embeddings are never
+        // used as a GEMM B-matrix. For `decoder_Wemb` and the legacy single
+        // `Wemb`, build the int8 alias for the decoder output projection.
+        const bool needs_prepared_alias = (item.name != "encoder_Wemb");
+        if (needs_prepared_alias) {
+          Item& processed = (item.name == "decoder_Wemb")
+                                ? decoder_embedding_processed
+                                : embedding_processed;
+          processed.name = (item.name == "decoder_Wemb")
+                               ? "decoder_Wemb_intgemm8"
+                               : "Wemb_intgemm8";
+          processed.shape = Shape({cols, rows});
+          processed.type = Type::i8;
+          size_t prepared_size =
+              processed.shape.elements() * sizeof(int8_t) + sizeof(float);
+          Aligned embedding_aligned(kAlignWidth, prepared_size);
+          auto* prepared = reinterpret_cast<int8_t*>(embedding_aligned.data());
+          qmm::prepare_weight_transposed(weights, prepared,
+                                         quantization_multiplier, cols, rows);
 
-        // Save quantization multiplier.
-        auto* embedding_quantization_multiplier_addr =
-            reinterpret_cast<float*>(prepared + (rows * cols));
-        *embedding_quantization_multiplier_addr = quantization_multiplier;
+          auto* embedding_quantization_multiplier_addr =
+              reinterpret_cast<float*>(prepared + (rows * cols));
+          *embedding_quantization_multiplier_addr = quantization_multiplier;
 
-        // SLIMT_TRACE(embedding_processed.shape);
-        set_item(embedding_processed, std::move(embedding_aligned));
+          set_item(processed, std::move(embedding_aligned));
+        }
       } else {
-        // The matrix has to be processed to the format expected by intgemm.
+        // The matrix has to be processed to the format expected by the QMM backend.
         size_t rows = item.shape.dim(-2);
         size_t cols = item.shape.dim(-1);
         auto* input = reinterpret_cast<int8_t*>(ptr);
@@ -245,8 +309,8 @@ std::vector<io::Item> load_items(void* current) {
         auto debug = [&]() {
           Tensor input_view;
           View original = {
-              .data = ptr,                    //
-              .size = headers[i].data_length  //
+              .data = ptr,                                         //
+              .size = static_cast<size_t>(headers[i].data_length)  //
           };
 
           input_view.load(original, item.type, item.shape, item.name);
@@ -262,13 +326,17 @@ std::vector<io::Item> load_items(void* current) {
       }
     } else {
       item.view = View{
-          .data = ptr,  //
-          .size = size  //
+          .data = ptr,                       //
+          .size = static_cast<size_t>(size)  //
       };
     }
   }
 
+  // Append both prepared aliases. Items left default-constructed (e.g. when
+  // the model has no `decoder_Wemb`) appear as no-name entries that the
+  // Transformer's parameter map never looks up — harmless.
   items.push_back(std::move(embedding_processed));
+  items.push_back(std::move(decoder_embedding_processed));
   return items;
 }
 

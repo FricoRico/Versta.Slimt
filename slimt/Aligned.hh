@@ -34,5 +34,6 @@ class Aligned {
 
   void* data_ = nullptr;
   size_t size_ = 0;
+  bool from_arena_ = false;
 };
 }  // namespace slimt

@@ -4,10 +4,18 @@
 #include <cstddef>
 #include <cstdlib>
 
+#include "slimt/Arena.hh"
+
 namespace slimt {
 
-Aligned::Aligned(size_t alignment, size_t size)
-    : data_(allocate(alignment, size)), size_(size) {}
+Aligned::Aligned(size_t alignment, size_t size) : size_(size) {
+  if (Arena* arena = active_arena()) {
+    data_ = arena->allocate(size, alignment);
+    from_arena_ = true;
+  } else {
+    data_ = allocate(alignment, size);
+  }
+}
 
 Aligned::~Aligned() { release(); }
 
@@ -37,9 +45,11 @@ Aligned& Aligned::operator=(Aligned&& from) noexcept {
 void Aligned::consume(Aligned& from) {
   data_ = from.data_;
   size_ = from.size_;
+  from_arena_ = from.from_arena_;
 
   from.data_ = nullptr;
   from.size_ = 0;
+  from.from_arena_ = false;
 }
 
 void* Aligned::allocate(size_t alignment, size_t size) {
@@ -48,13 +58,19 @@ void* Aligned::allocate(size_t alignment, size_t size) {
     aligned_size += alignment;
   }
   assert(aligned_size >= size);
-  return aligned_alloc(alignment, aligned_size);
+  void* ptr = nullptr;
+  if (posix_memalign(&ptr, alignment, aligned_size) != 0) {
+    return nullptr;
+  }
+  return ptr;
 }
 
 void Aligned::release() {
-  if (data_ != nullptr) {
+  if (data_ != nullptr && !from_arena_) {
     free(data_);
   }
+  data_ = nullptr;
   size_ = 0;
+  from_arena_ = false;
 }
 }  // namespace slimt

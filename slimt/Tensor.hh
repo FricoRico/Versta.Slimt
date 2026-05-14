@@ -128,6 +128,12 @@ class Tensor {
   }
 
   bool standalone() const { return aligned_.data() != nullptr; }
+  // True after a constructor that allocated, or a `load()` that pointed at
+  // non-null data. False for default-constructed Tensors and for items the
+  // loader skipped (two-vocab models' empty `decoder_Wemb_QuantMultA`
+  // marker — see Io.cc for why, and `Modules::affine` for the dynamic
+  // a_quant fallback that triggers on unloaded `Affine::quant`).
+  bool loaded() const { return view_.data != nullptr; }
   size_t size() const { return shape_.elements(); }
   uint64_t dim(int index) const;
   Shape &shape() { return shape_; }

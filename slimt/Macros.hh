@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdio>
 #include <iostream>
+#include <stdexcept>
+#include <string>
 
 #define SLIMT_BREAK std::raise(SIGTRAP)
 
@@ -27,6 +29,12 @@
   SLIMT_TRACE2(x, y);         \
   SLIMT_TRACE(z);
 
+// SLIMT_ABORT* signals a corrupt input file or a slimt invariant failure
+// (programmer error). These are unrecoverable — abort gives a real stack
+// trace and surfaces the bug rather than letting it propagate as a silent
+// translation failure. For paths whose failures are user-input-driven and
+// genuinely recoverable (HTML parsing, primarily), throw `std::runtime_error`
+// directly rather than reusing this macro.
 #define SLIMT_ABORT_IF(condition, error) \
   do {                                   \
     if (condition) {                     \
