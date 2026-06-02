@@ -9,60 +9,11 @@
 #include <utility>
 #include <vector>
 
-#include "slimt/Aligned.hh"
 #include "slimt/Annotation.hh"
-#include "slimt/Macros.hh"
-#include "slimt/Splitter.hh"
 #include "slimt/Types.hh"
 #include "slimt/Vocabulary.hh"
 
 namespace slimt {
-
-namespace {
-using slimt::SentenceStream;
-SentenceStream::splitmode string2splitmode(const std::string &m) {
-  using splitmode = SentenceStream::splitmode;
-  if (m == "sentence") {
-    return splitmode::OneSentencePerLine;
-  }
-  if (m == "paragraph") {
-    return splitmode::OneParagraphPerLine;
-  }
-  if (m == "wrapped_text") {
-    return splitmode::WrappedText;
-  }
-  SLIMT_ABORT(
-      "Unknown ssplitmode {}, Please choose one of "
-      "{sentence,paragraph,wrapped_text}");
-}
-
-Splitter load_splitter(const std::string &prefix_path) {
-  // Temporarily supports empty, will be removed when mozilla passes
-  // prefix_path
-  Splitter splitter;
-  if (!prefix_path.empty()) {
-    LOG(info, "Loading protected prefixes for sentence splitting from %s",
-        prefix_path.c_str());
-    splitter.load(prefix_path);
-  } else {
-    LOG(warn,
-        "Missing list of protected prefixes for sentence splitting. "
-        "Set with --ssplit-prefix-file.");
-  }
-  return splitter;
-}
-
-Splitter load_splitter(const Aligned &memory) {
-  // Temporarily supports empty, will be removed when mozilla passes memory
-  Splitter splitter;
-  if (!memory.empty()) {
-    std::string_view serialized(memory.begin(), memory.size());
-    splitter.load_from_serialized(serialized);
-  }
-  return splitter;
-}
-
-}  // namespace
 
 Segment TextProcessor::tokenize(
     const std::string_view &segment,
@@ -74,48 +25,24 @@ Segment TextProcessor::tokenize(
   return words;
 }
 
-TextProcessor::TextProcessor(const std::string &mode,
-                             const Vocabulary &vocabulary,
-                             const Aligned &memory)
-    : ssplit_mode_(string2splitmode(mode)), vocabulary_(vocabulary) {
-  // This is not the best of the solutions at the moment, but is consistent
-  // with what happens among other structures like model, vocabulary or
-  // shortlist.  First, we check if the bytearray is empty. If not, we load
-  // from ByteArray.  In case empty, the string based loader which reads from
-  // file is called.  However, ssplit allows for not supplying
-  // ssplit-prefix-file where-in the purely regular expression based splitter
-  // is activated.
-  //
-  // For now, we allow not supplying an ssplit-prefix-file.
-
-  // SLIMT_ABORT_IF(memory.empty(), "ssplit: Empty blob supplied for
-  // initialization.");
-  ssplit_ = load_splitter(memory);
-}
+TextProcessor::TextProcessor(const Vocabulary &vocabulary)
+    : vocabulary_(vocabulary) {}
 
 std::tuple<AnnotatedText, Segments> TextProcessor::process(
     std::string &&input, size_t wrap_length) const {
+  // The caller has pre-split this input into a single sentence (see
+  // translator::sentence_split on the Rust side). Tokenise the whole
+  // input as one segment, then let `wrap()` chop pathologically long
+  // sentences so they stay under the model's positional-encoding limit.
   AnnotatedText source(std::move(input));
   Segments segments;
-  std::string_view input_converted(source.text.data(), source.text.size());
-  auto sentence_stream = SentenceStream(input_converted, ssplit_, ssplit_mode_);
+  std::string_view sentence(source.text.data(), source.text.size());
 
-  std::string_view sentence_string_piece;
+  std::vector<std::string_view> word_ranges;
+  Segment segment = tokenize(sentence, word_ranges);
 
-  while (sentence_stream >> sentence_string_piece) {
-    std::string_view sentence(sentence_string_piece.data(),
-                              sentence_string_piece.size());
-
-    std::vector<std::string_view> word_ranges;
-    Segment segment = tokenize(sentence, word_ranges);
-
-    // There are some cases where SentencePiece or vocab returns no words
-    // after normalization. 0 prevents any empty entries from being added.
-    if (!segment.empty()) {
-      // Wrap segment into sentences of at most wrap_length_ tokens and
-      // tell source about them.
-      wrap(segment, word_ranges, segments, source, wrap_length);
-    }
+  if (!segment.empty()) {
+    wrap(segment, word_ranges, segments, source, wrap_length);
   }
   return {std::move(source), std::move(segments)};
 }

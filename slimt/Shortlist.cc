@@ -2,9 +2,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <stdexcept>
 
 #include "slimt/Macros.hh"
 #include "slimt/Types.hh"
@@ -13,6 +16,25 @@
 
 namespace slimt {
 
+namespace {
+
+// Shortlist binary-integrity errors are user-fixable (re-download / replace
+// the lex.*.s2t.bin file), so they throw `std::runtime_error` rather than
+// going through `SLIMT_ABORT*`. Slimt's frontend catches these and the
+// caller sees a recoverable Result::Err.
+[[noreturn]] void shortlist_throw(const std::string& message) {
+  throw std::runtime_error(std::string("[slimt] ") + message);
+}
+
+#define SHORTLIST_THROW_IF(cond, message) \
+  do {                                    \
+    if (cond) {                           \
+      shortlist_throw(message);           \
+    }                                     \
+  } while (0)
+
+}  // namespace
+
 bool ShortlistGenerator::content_check() {
   bool fail_flag = false;
   // The offset table has to be within the size of shortlists.
@@ -20,12 +42,12 @@ bool ShortlistGenerator::content_check() {
     fail_flag |= word_to_offset_[i] >= shortlist_size_;
   }
 
-  SLIMT_ABORT_IF(fail_flag, "Error: offset table not within shortlist size.");
+  SHORTLIST_THROW_IF(fail_flag, "shortlist file: offset table not within shortlist size (corrupt lex.*.s2t.bin)");
 
   // The last element of word_to_offset_ must equal shortlist_size_
   fail_flag |= word_to_offset_[word_to_offset_size_ - 1] != shortlist_size_;
 
-  SLIMT_ABORT_IF(fail_flag, "Error: word_to_offset != shortlist_size");
+  SHORTLIST_THROW_IF(fail_flag, "shortlist file: word_to_offset != shortlist_size (corrupt lex.*.s2t.bin)");
 
   // The vocabulary indices have to be within the vocabulary size.
   size_t v_size = target_.size();
@@ -33,7 +55,7 @@ bool ShortlistGenerator::content_check() {
     fail_flag |= shortlist_[j] >= v_size;
   }
 
-  SLIMT_ABORT_IF(fail_flag, "Error: shortlist indices are out of bounds");
+  SHORTLIST_THROW_IF(fail_flag, "shortlist file: indices out of bounds (corrupt lex.*.s2t.bin or wrong vocab)");
   return fail_flag;
 }
 
@@ -46,23 +68,26 @@ void ShortlistGenerator::load(const void* data, size_t blob_size,
    * short_lists array
    */
   (void)blob_size;
-  SLIMT_ABORT_IF(blob_size < sizeof(Header),
-                 "Shortlist length too short to have a header: " +
-                     std::to_string(blob_size));
+  SHORTLIST_THROW_IF(blob_size < sizeof(Header),
+                     "shortlist file too short to contain a header (size " +
+                         std::to_string(blob_size) +
+                         "); re-download lex.*.s2t.bin");
 
   const char* ptr = static_cast<const char*>(data);
   const Header& header = *reinterpret_cast<const Header*>(ptr);
   ptr += sizeof(Header);
-  SLIMT_ABORT_IF(header.magic != kMagic, "Incorrect magic in binary shortlist");
+  SHORTLIST_THROW_IF(header.magic != kMagic,
+                     "shortlist file: wrong magic number (not a slimt "
+                     "lex.*.s2t.bin, or corrupt)");
 
   uint64_t expected_size = sizeof(Header) +
                            header.word_to_offset_size * sizeof(uint64_t) +
                            header.shortlist_size * sizeof(Word);
 
-  SLIMT_ABORT_IF(expected_size != blob_size,
-                 "Shortlist header claims file size should be " +
-                     std::to_string(expected_size) + " but file is " +
-                     std::to_string(blob_size));
+  SHORTLIST_THROW_IF(expected_size != blob_size,
+                     "shortlist file size mismatch: header claims " +
+                         std::to_string(expected_size) + " bytes but file is " +
+                         std::to_string(blob_size) + " (truncated or corrupt)");
 
   if (check) {
     size_t length = (       //
@@ -73,8 +98,9 @@ void ShortlistGenerator::load(const void* data, size_t blob_size,
     auto checksum_actual = hash_bytes<uint64_t, uint64_t>(
         &header.frequent, (length) / sizeof(uint64_t));
 
-    SLIMT_ABORT_IF(checksum_actual != header.checksum,
-                   "checksum check failed: this binary shortlist is corrupted");
+    SHORTLIST_THROW_IF(checksum_actual != header.checksum,
+                       "shortlist file: checksum mismatch (corrupt "
+                       "lex.*.s2t.bin); re-download the model");
   }
 
   frequent_ = header.frequent;
@@ -112,7 +138,8 @@ ShortlistGenerator::ShortlistGenerator(                        //
   (void)source_index_;
 }
 
-Shortlist ShortlistGenerator::generate(const Words& words) const {
+Shortlist ShortlistGenerator::generate(const Words& words,
+                                       size_t min_candidates) const {
   size_t source_size = source_.size();
   size_t target_size = target_.size();
 
@@ -152,11 +179,13 @@ Shortlist ShortlistGenerator::generate(const Words& words) const {
     }
   }
 
-  // Ensure that the generated vocabulary items from a shortlist are a
-  // multiple-of-eight This is necessary until intgemm supports
-  // non-multiple-of-eight matrices.
+  // Top up to min_candidates with the next-most-frequent ids, and ensure
+  // the generated vocabulary items are a multiple of the vector extension
+  // alignment.
   for (size_t i = frequent_;
-       i < target_size && target_table_ones % kVExtAlignment != 0; i++) {
+       i < target_size && (target_table_ones < min_candidates ||
+                           target_table_ones % kVExtAlignment != 0);
+       i++) {
     if (!target_table[i]) {
       target_table[i] = true;
       target_table_ones++;
@@ -173,5 +202,7 @@ Shortlist ShortlistGenerator::generate(const Words& words) const {
 
   return Shortlist(std::move(indices));
 }
+
+
 
 }  // namespace slimt

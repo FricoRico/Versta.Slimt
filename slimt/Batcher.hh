@@ -34,9 +34,16 @@ class SegmentRef {
   /// Accessor to the segment represented by the SegmentRef.
   const Segment &get() const;
 
+  const Ptr<Request> &request() const { return request_; }
+
   /// Forwards history to Request to set history corresponding to this
   /// SegmentRef.
   void complete(History history);
+
+  /// Forwards an exception to the parent Request's failure callback. Sibling
+  /// SegmentRefs from the same Request all hit the same Request::abort,
+  /// which is idempotent so duplicates are dropped.
+  void abort(std::exception_ptr eptr);
 
   friend bool operator<(const SegmentRef &a, const SegmentRef &b);
 
@@ -66,11 +73,19 @@ class Batch {
   // batch.
   const SegmentRefs &segment_refs() const { return segment_refs_; }
 
+  RowShortlists shortlist() const;
+
   // On obtaining Histories after translating a batch, complete can be
   // called with Histories , which forwards the call to Request through
   // SegmentRef and triggers completion, by setting the promised value to
   // the future given to client.
   void complete(const Histories &histories);
+
+  /// Failure path: forward `eptr` to every SegmentRef in this batch so each
+  /// distinct parent Request's `abort()` fires (and via `on_error_` sets an
+  /// exception on the caller's promise). Used by the Async worker when the
+  /// translation pipeline throws.
+  void abort(std::exception_ptr eptr);
 
   // Convenience function to log batch-statistics. size, max-length.
   void log();
@@ -100,6 +115,14 @@ class Batcher {
 
   // Removes any pending requests from the pool.
   void clear();
+
+  // True iff there are no pending sentences in any bucket.
+  bool empty() const {
+    for (const auto& b : bucket_) {
+      if (!b.empty()) return false;
+    }
+    return true;
+  }
 
  private:
   size_t max_words_;

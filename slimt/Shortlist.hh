@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -42,6 +43,7 @@ class ShortlistGenerator {
   static constexpr uint64_t kFrequent = 100;
   static constexpr uint64_t kBest = 100;
   static constexpr size_t kVExtAlignment = 8;
+  static constexpr size_t kMinCandidates = 1000;
 
   // construct directly from buffer
   ShortlistGenerator(
@@ -51,7 +53,14 @@ class ShortlistGenerator {
       bool shared = false,  // Kept there for backward compatibility
       bool check = false);
 
-  Shortlist generate(const Words& words) const;
+  // Small shortlists starve greedy decode: when the token the model wants
+  // is absent, the argmax falls to whatever glue happens to be available and
+  // the output degenerates into fluent garbage ("hello in the hello",
+  // leading dashes). `min_candidates` tops the set up with the
+  // next-most-frequent target ids (the vocabulary is frequency-ordered),
+  // which restores casing variants, punctuation and subword continuations
+  // at a fraction of the full-vocabulary projection cost.
+  Shortlist generate(const Words& words, size_t min_candidates = 0) const;
 
  private:
   const Vocabulary& source_;

@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <set>
 #include <tuple>
 #include <utility>
 
@@ -57,6 +58,16 @@ void Batch::add(const SegmentRef& segment_ref) {
   max_length_ = std::max<size_t>(max_length_, segment_ref.size());
 }
 
+void SegmentRef::abort(std::exception_ptr eptr) {
+  request_->abort(std::move(eptr));
+}
+
+void Batch::abort(std::exception_ptr eptr) {
+  for (auto& segment_ref : segment_refs_) {
+    segment_ref.abort(eptr);
+  }
+}
+
 void Batch::complete(const Histories& histories) {
   for (size_t i = 0; i < segment_refs_.size(); i++) {
     segment_refs_[i].complete(histories[i]);
@@ -67,6 +78,15 @@ void Batch::clear() {
   segment_refs_.clear();
   token_count_ = 0;
   max_length_ = 0;
+}
+
+RowShortlists Batch::shortlist() const {
+  RowShortlists rows;
+  rows.reserve(segment_refs_.size());
+  for (const auto &segment_ref : segment_refs_) {
+    rows.push_back(segment_ref.request()->shortlist_words());
+  }
+  return rows;
 }
 
 size_t AggregateBatcher::Hash::operator()(
@@ -163,7 +183,6 @@ AggregateBatcher::AggregateBatcher(
 
 size_t AggregateBatcher::enqueue(const Ptr<Model>& model,
                                  const Ptr<Request>& request) {
-  queue_.insert(model);
   size_t id = model->id();
 
   auto query = batcher_.find(id);
@@ -174,15 +193,35 @@ size_t AggregateBatcher::enqueue(const Ptr<Model>& model,
         std::forward_as_tuple(max_words_, wrap_length_,
                               tgt_length_limit_factor_)  //
     );
+    query = batcher_.find(id);
   }
 
-  query = batcher_.find(id);
   Batcher& batcher = query->second;
   size_t size = batcher.enqueue(request);
+  // Only register the model as having pending work when the request actually
+  // contributed sentences. Otherwise (e.g. fully cache-served request) we'd
+  // pin the model in queue_ until the next translate happened to sweep it,
+  // blocking eviction of the model's mmap.
+  if (size > 0) {
+    queue_.insert(model);
+  }
   return size;
 }
 
 std::tuple<Batch, Ptr<Model>> AggregateBatcher::generate() {
+  // Sweep all stale entries first: an entry whose Batcher has already been
+  // drained must be released so the model's shared_ptr ref count can drop.
+  // Without this, if iteration order returns a model with pending work
+  // before a drained one, the drained entry never gets erased.
+  for (auto it = queue_.begin(); it != queue_.end();) {
+    auto query = batcher_.find((*it)->id());
+    if (query != batcher_.end() && query->second.empty()) {
+      it = queue_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
   while (!queue_.empty()) {
     auto model_iterator = queue_.begin();
     Ptr<Model> model = *model_iterator;
@@ -190,6 +229,12 @@ std::tuple<Batch, Ptr<Model>> AggregateBatcher::generate() {
     Batcher& batcher = query->second;
     Batch batch = batcher.generate();
     if (!batch.empty()) {
+      // If we just drained the per-model batcher, drop the queue_ entry so
+      // the model's shared_ptr isn't pinned by the queue while the consumer
+      // is parked in the next blocking generate() call.
+      if (batcher.empty()) {
+        queue_.erase(model_iterator);
+      }
       return {std::move(batch), std::move(model)};
     }
     queue_.erase(model_iterator);
