@@ -48,8 +48,9 @@ class Request {
           Segments &&segments, const Vocabulary &vocabulary,
           std::shared_ptr<const Words> shortlist_words,
           std::optional<TranslationCache> &cache, Continuation &&continuation,
-          OnError &&on_error, bool with_alignment,
-          std::optional<AlternativesConfig> alternatives, Words forced_prefix);
+           OnError &&on_error, bool with_alignment,
+           std::optional<AlternativesConfig> alternatives, Words forced_prefix,
+           size_t max_sequence_length = 0, size_t max_beam_width = 3);
 
   /// Whether this request wants per-token alternatives, and with what config.
   const std::optional<AlternativesConfig> &alternatives() const {
@@ -58,6 +59,15 @@ class Request {
 
   /// Target tokens forced for the first N decode steps (empty for none).
   const Words &forced_prefix() const { return forced_prefix_; }
+
+  /// Hard cap (in target tokens) on generated length; 0 means use the
+  /// service-level tgt_length_limit_factor. Consulted by convert() when
+  /// deriving the per-batch limit_factor.
+  size_t max_sequence_length() const { return max_sequence_length_; }
+
+  /// Ceiling on the robust re-decode beam width; 1 (or less) disables the beam
+  /// pass. Consulted by convert() when deriving the per-batch beam width.
+  size_t max_beam_width() const { return max_beam_width_; }
 
   /// Obtain the count of tokens in the segment correponding to index. Used to
   /// insert segment from multiple requests into the corresponding size
@@ -150,6 +160,12 @@ class Request {
   // Target tokens to force before free-running. Folded into the cache key so a
   // steered re-translation never collides with the plain one.
   Words forced_prefix_;
+
+  // Hard cap (in target tokens) on generated length; 0 means unset.
+  size_t max_sequence_length_;
+
+  // Ceiling on the robust re-decode beam width; 3 by default.
+  size_t max_beam_width_;
 };
 
 }  // namespace leanmt

@@ -41,6 +41,10 @@ class Input {
   // Per batch row: the target tokens to force before free-running (empty for
   // rows without a forced prefix). Empty overall when no row forces anything.
   const std::vector<Words> &forced() const { return forced_; }
+  // Ceiling on the robust re-decode beam width for this batch. Carried from
+  // Options::max_beam_width (default 3). 1 (or less) disables the beam pass.
+  void set_max_beam_width(size_t width) { max_beam_width_ = width; }
+  size_t max_beam_width() const { return max_beam_width_; }
   const std::vector<size_t> &lengths() const { return lengths_; }
   size_t index() const { return index_; }
   float occupancy();
@@ -59,6 +63,7 @@ class Input {
   uint32_t pad_id_ = 0;
   size_t used_ = 0;
   float limit_factor_;
+  size_t max_beam_width_ = 3;
   bool finalized_ = false;
 };
 }  // namespace leanmt

@@ -62,6 +62,17 @@ struct Options {
   /// prefix. Empty means no forcing. Implies greedy decode.
   Words forced_prefix{};
 
+  /// Ceiling on the beam width used by the two-pass robust re-decode. The
+  /// router still stratifies width by per-sentence log-prob deficit, but never
+  /// exceeds this cap. `1` (or less) disables the beam pass entirely, falling
+  /// back to pure greedy. Default 3 preserves the historical behavior.
+  size_t max_beam_width{3};
+
+  /// Hard cap (in target tokens) on generated length for this request. `0`
+  /// keeps the historical behavior of deriving the cap from
+  /// `Config::tgt_length_limit_factor` (limit_factor * source_length + slack).
+  size_t max_sequence_length{0};
+
   /// Fired once per Request when it finishes translating, from the worker
   /// thread. Used to report incremental progress without slicing the corpus
   /// into many small translate() calls (which starves the batcher). Must be

@@ -46,7 +46,8 @@ Request::Request(size_t id, size_t model_id, AnnotatedText &&source,
                  Continuation &&continuation, OnError &&on_error,
                  bool with_alignment,
                  std::optional<AlternativesConfig> alternatives,
-                 Words forced_prefix)
+                 Words forced_prefix, size_t max_sequence_length,
+                 size_t max_beam_width)
     : id_(id),
       model_id_(model_id),
       source_(std::move(source)),
@@ -58,7 +59,9 @@ Request::Request(size_t id, size_t model_id, AnnotatedText &&source,
       on_error_(std::move(on_error)),
       with_alignment_(with_alignment),
       alternatives_(std::move(alternatives)),
-      forced_prefix_(std::move(forced_prefix)) {
+      forced_prefix_(std::move(forced_prefix)),
+      max_sequence_length_(max_sequence_length),
+      max_beam_width_(max_beam_width) {
   counter_ = segments_.size();
   histories_.resize(segments_.size(), nullptr);
 

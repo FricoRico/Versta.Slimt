@@ -29,6 +29,22 @@ namespace {
 
 Input convert(const Batch &batch, uint32_t pad_id, float limit_factor) {
   const auto &segment_refs = batch.segment_refs();
+
+  // A request may cap generated length via Options::max_sequence_length. When
+  // set, translate it into the per-batch limit_factor (target tokens ≈
+  // limit_factor * source_length + slack, the same contract decode() uses).
+  size_t override_seq = 0;
+  for (const auto &segment_ref : segment_refs) {
+    size_t msl = segment_ref.request()->max_sequence_length();
+    if (msl > override_seq) {
+      override_seq = msl;
+    }
+  }
+  if (override_seq > 0) {
+    float source_len = static_cast<float>(batch.max_length());
+    limit_factor = std::max(override_seq, size_t{1}) / std::max(source_len, 1.0f);
+  }
+
   Input input(batch.size(), batch.max_length(), pad_id, limit_factor);
   for (const auto &segment_ref : segment_refs) {
     const Segment &segment = segment_ref.get();
@@ -66,6 +82,17 @@ Input convert(const Batch &batch, uint32_t pad_id, float limit_factor) {
   if (any_forced) {
     input.set_forced(std::move(forced));
   }
+
+  // Carry the (max) requested beam-width cap onto the Input. A batch shares
+  // one Options in practice, so the first nonzero value fixes it.
+  size_t beam_width = 0;
+  for (const auto &segment_ref : segment_refs) {
+    size_t req_bw = segment_ref.request()->max_beam_width();
+    if (req_bw > beam_width) {
+      beam_width = req_bw;
+    }
+  }
+  input.set_max_beam_width(beam_width > 0 ? beam_width : 3);
 
   input.finalize();
   return input;
@@ -106,10 +133,12 @@ Ptr<Request> make_request(size_t id, const Ptr<Model> &model,
                           std::optional<TranslationCache> &cache,
                           AnnotatedText &&annotated_text, Segments &&segments,
                           Continuation &&continuation, OnError &&on_error,
-                          bool with_alignment,
-                          std::optional<AlternativesConfig> alternatives =
-                              std::nullopt,
-                          Words forced_prefix = {}) {
+                           bool with_alignment,
+                           std::optional<AlternativesConfig> alternatives =
+                               std::nullopt,
+                           Words forced_prefix = {},
+                           size_t max_sequence_length = 0,
+                           size_t max_beam_width = 3) {
   std::shared_ptr<const Words> shortlist_words;
   if (model->shortlist_generator()) {
     Words context_words;
@@ -136,7 +165,9 @@ Ptr<Request> make_request(size_t id, const Ptr<Model> &model,
       std::forward<OnError>(on_error),           //
       with_alignment,                            //
       std::move(alternatives),                   //
-      std::move(forced_prefix)                   //
+      std::move(forced_prefix),                  //
+      max_sequence_length,                       //
+      max_beam_width                             //
   );
   return request;
 }
@@ -185,7 +216,9 @@ std::vector<Response> Blocking::translate(const Ptr<Model> &model,
     auto request = make_request(id(), model, cache_, std::move(annotated),
                                 std::move(segments), continuation, on_error,
                                 /*with_alignment=*/options.alignment,
-                                options.alternatives, options.forced_prefix);
+                                options.alternatives, options.forced_prefix,
+                                options.max_sequence_length,
+                                options.max_beam_width);
 
     batcher.enqueue(request);
   }
@@ -243,7 +276,10 @@ std::vector<Response> Blocking::pivot(const Ptr<Model> &first,
     auto [annotated, segments] = processor.process(source_to_pivot.target);
     auto request = make_request(id(), second, cache_, std::move(annotated),
                                 std::move(segments), continuation, on_error,
-                                /*with_alignment=*/options.alignment);
+                                /*with_alignment=*/options.alignment,
+                                options.alternatives, options.forced_prefix,
+                                options.max_sequence_length,
+                                options.max_beam_width);
 
     batcher.enqueue(request);
   }
@@ -333,7 +369,9 @@ Handle Async::translate(const Ptr<Model> &model, std::string source,
   auto request = make_request(id(), model, cache_, std::move(annotated),
                               std::move(segments), continuation, on_error,
                               /*with_alignment=*/options.alignment,
-                              options.alternatives, options.forced_prefix);
+                              options.alternatives, options.forced_prefix,
+                              options.max_sequence_length,
+                              options.max_beam_width);
 
   batcher_.enqueue(model, request);
 
@@ -392,7 +430,10 @@ Handle Async::pivot(const Ptr<Model> &first, const Ptr<Model> &second,
       processor.process(std::move(source), config_.wrap_length);
   auto request = make_request(id(), first, cache_, std::move(annotated),
                               std::move(segments), continuation, on_error,
-                              /*with_alignment=*/options.alignment);
+                              /*with_alignment=*/options.alignment,
+                              options.alternatives, options.forced_prefix,
+                              options.max_sequence_length,
+                              options.max_beam_width);
 
   batcher_.enqueue(first, request);
 

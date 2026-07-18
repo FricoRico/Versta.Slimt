@@ -903,13 +903,16 @@ Histories Model::forward(const Input &input) const {
   // Two-pass robust decode: greedy first (capturing each sentence's max
   // contiguous log-prob deficit), then re-decode only the low-confidence
   // sentences with batched beam search, reusing the encoder output. The beam
-  // width is stratified by deficit. LEANMT_ROBUST_D overrides the re-decode
-  // threshold; 0 disables the pass (pure greedy, no deficit overhead).
+  // width is stratified by deficit, capped by Options::max_beam_width.
+  // LEANMT_ROBUST_D overrides the re-decode threshold; 0 disables the pass
+  // (pure greedy, no deficit overhead). A max_beam_width of 1 (or less) also
+  // disables the beam pass.
   static const double robust_d = [] {
     const char *v = std::getenv("LEANMT_ROBUST_D");
     return v != nullptr ? std::strtod(v, nullptr) : 1.0;
   }();
   constexpr double kBeam3Deficit = 1.5;
+  const size_t max_beam_width = input.max_beam_width();
 
   // Harvesting per-token alternatives needs the greedy distributions, which the
   // robust beam re-decode would discard. A batch can mix rows that requested
@@ -918,7 +921,7 @@ Histories Model::forward(const Input &input) const {
   // not for the rows that asked for alternatives, whose greedy hypotheses are
   // kept intact.
   const std::optional<AlternativesConfig> &alt_cfg = input.alternatives();
-  bool robust = robust_d > 0.0;
+  bool robust = robust_d > 0.0 && max_beam_width > 1;
 
   std::vector<double> deficits;
   Histories histories =
@@ -942,7 +945,8 @@ Histories Model::forward(const Input &input) const {
         continue;
       }
       flagged.push_back(i);
-      widths.push_back(deficits[i] >= kBeam3Deficit ? 3 : 2);
+      size_t width = deficits[i] >= kBeam3Deficit ? 3 : 2;
+      widths.push_back(std::min(width, max_beam_width));
     }
     if (!flagged.empty()) {
       Tensor enc = select_batch(encoder_out, flagged, "encoder_out_flagged");
