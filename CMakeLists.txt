@@ -45,6 +45,11 @@ if(USE_NEON)
   list(APPEND LEANMT_COMPILE_DEFINITIONS USE_NEON)
 endif(USE_NEON)
 
+option(LEANMT_ARM64_TUNE "Enable armv8a dotprod on arm64" OFF)
+if(LEANMT_ARM64_TUNE AND ANDROID_ABI STREQUAL "arm64-v8a")
+  list(APPEND LEANMT_COMPILE_OPTIONS -march=armv8.2-a+dotprod)
+endif()
+
 # cmake-format: off
 set(CMAKE_CXX_FLAGS_PROFILE           "${CMAKE_CXX_FLAGS_RELEASE} -pg" CACHE STRING "Flags used by the C++ compiler during profile builds." FORCE)
 set(CMAKE_C_FLAGS_PROFILE             "${CMAKE_C_FLAGS_RELEASE} -pg" CACHE STRING "Flags used by the C compiler during profile builds." FORCE)
