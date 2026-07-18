@@ -23,16 +23,6 @@ struct Ops;
 
 // Naive implementation
 
-#if defined(USE_AVX2)
-#include "slimt/simd/avx2.h"
-#define VEXT_W8_AVAILABLE
-
-namespace slimt {
-using F32x8 = VDatum<VExt::w8>;
-}
-
-#endif
-
 // SSE2 is given for x86-64.
 #if defined(USE_SSE2)
 #include "slimt/simd/sse.h"

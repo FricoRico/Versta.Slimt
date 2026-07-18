@@ -56,10 +56,6 @@ enum class TypeClass : size_t {
   unsigned_type = 0x0200,
   float_type    = 0x0400,
 
-  packed_type   = 0x0800, // special packed (CPU cache friendly) type class, used in FBGEMM, not meant to be used anywhere else
-  avx2_type     = 0x1000, // processor-specific layout for avx2, currently used for FBGEMM only
-  avx512_type   = 0x2000, // processor-specific layout for avx512, currently used for FBGEMM only
-
   intgemm_type = 0x4000, // legacy intgemm-format quantized models
 
 
@@ -91,10 +87,6 @@ enum class OGType : size_t {
   float16  = TypeClass::float_type + 2u,
   float32  = TypeClass::float_type + 4u,
   float64  = TypeClass::float_type + 8u,
-
-  packed16      = TypeClass::packed_type + 2u,                          // special type for FBGEMM, not meant to be used anywhere else, not meant to be accessed invidually. Internal actual type (uint16) is meaningless.
-  packed8avx2   = TypeClass::packed_type + 1u + TypeClass::avx2_type,   // special type for FBGEMM with AVX2, not meant to be used anywhere else, not meant to be accessed invidually. Internal actual type (uint8) is meaningless.
-  packed8avx512 = TypeClass::packed_type + 1u + TypeClass::avx512_type, // special type for FBGEMM with AVX512, not meant to be used anywhere else, not meant to be accessed invidually. Internal actual type (uint8) is meaningless.
 
   intgemm8      = TypeClass::signed_type + 1u + TypeClass::intgemm_type, // legacy int8 quantized matrices
   intgemm16     = TypeClass::signed_type + 2u + TypeClass::intgemm_type // legacy int16 quantized matrices

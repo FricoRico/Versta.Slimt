@@ -10,6 +10,7 @@ set(SLIMT_PUBLIC_HEADERS
     Modules.hh
     Response.hh
     Shortlist.hh
+    Splitter.hh
     Tensor.hh
     TextProcessor.hh
     Transformer.hh
@@ -27,10 +28,13 @@ set(SLIMT_GENERATED_HEADERS ${CMAKE_CURRENT_BINARY_DIR}/Version.hh
                             ${CMAKE_CURRENT_BINARY_DIR}/Export.hh)
 
 set(SLIMT_PRIVATE_HEADERS
+    HTML.hh
     QMM.hh
+    Regex.hh
     Request.hh
     TensorOps.hh
-    Utils.hh)
+    Utils.hh
+    XHScanner.hh)
 
 set(SLIMT_SOURCES
     Aligned.cc
@@ -38,20 +42,30 @@ set(SLIMT_SOURCES
     Arena.cc
     Batcher.cc
     Frontend.cc
+    HTML.cc
     Input.cc
     Io.cc
     Model.cc
     Modules.cc
     QMM.cc
+    Regex.cc
     Request.cc
     Response.cc
     Shortlist.cc
+    Splitter.cc
     Tensor.cc
     TensorOps.cc
     TextProcessor.cc
     Transformer.cc
     Utils.cc
-    Vocabulary.cc)
+    Vocabulary.cc
+    XHScanner.cc)
+
+if(WITH_GEMMOLOGY)
+  list(APPEND SLIMT_SOURCES qmm/Gemmology.cc)
+  set_source_files_properties(
+    qmm/Gemmology.cc PROPERTIES COMPILE_OPTIONS "${SLIMT_QMM_COMPILE_OPTIONS}")
+endif(WITH_GEMMOLOGY)
 
 set(SLIMT_LIBRARIES)
 

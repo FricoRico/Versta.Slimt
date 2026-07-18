@@ -266,49 +266,7 @@ void add_positional_embedding(const float* word_embedding,
 }
 
 size_t argmax(const float* x, size_t n) {
-#ifdef USE_AVX2
-  // AVX2 8-wide: maintain (max_value, max_index) lane-pair, advance index
-  // counter by 8 each iteration, blend on greater-than mask.
-  constexpr size_t kWidth = 8;
-  if (n >= kWidth) {
-    __m256 vmax = _mm256_loadu_ps(x);
-    __m256i vidx = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
-    __m256i vinc = _mm256_set1_epi32(static_cast<int32_t>(kWidth));
-    __m256i vcurr = _mm256_setr_epi32(8, 9, 10, 11, 12, 13, 14, 15);
-
-    size_t aligned = (n / kWidth) * kWidth;
-    for (size_t i = kWidth; i < aligned; i += kWidth) {
-      __m256 v = _mm256_loadu_ps(x + i);
-      __m256 mask = _mm256_cmp_ps(v, vmax, _CMP_GT_OS);
-      vmax = _mm256_blendv_ps(vmax, v, mask);
-      vidx = _mm256_castps_si256(_mm256_blendv_ps(_mm256_castsi256_ps(vidx),
-                                                  _mm256_castsi256_ps(vcurr),
-                                                  mask));
-      vcurr = _mm256_add_epi32(vcurr, vinc);
-    }
-
-    alignas(32) float maxv[kWidth];
-    alignas(32) int32_t idxs[kWidth];
-    _mm256_store_ps(maxv, vmax);
-    _mm256_store_si256(reinterpret_cast<__m256i*>(idxs), vidx);
-
-    size_t best_idx = static_cast<size_t>(idxs[0]);
-    float best = maxv[0];
-    for (size_t k = 1; k < kWidth; ++k) {
-      if (maxv[k] > best) {
-        best = maxv[k];
-        best_idx = static_cast<size_t>(idxs[k]);
-      }
-    }
-    for (size_t i = aligned; i < n; ++i) {
-      if (x[i] > best) {
-        best = x[i];
-        best_idx = i;
-      }
-    }
-    return best_idx;
-  }
-#elif defined(USE_NEON)
+#if defined(USE_NEON)
   constexpr size_t kWidth = 4;
   if (n >= kWidth) {
     float32x4_t vmax = vld1q_f32(x);
@@ -362,10 +320,6 @@ size_t argmax(const float* x, size_t n) {
 }
 
 void softmax(float* logits, size_t batch_size, size_t num_classes, float* out) {
-#ifdef VEXT_W8_AVAILABLE
-  vext::softmax<VExt::w8>(logits, batch_size, num_classes, out);
-  return;
-#endif
 #ifdef VEXT_W4_AVAILABLE
   vext::softmax<VExt::w4>(logits, batch_size, num_classes, out);
   return;

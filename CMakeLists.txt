@@ -11,26 +11,16 @@ set(CMAKE_CXX_VISIBLITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINE_HIDDEN YES)
 
 option(WITH_ASAN "Enable AddressSanitizer in builds" OFF)
-option(WITH_TESTS "Enable building tests (requires a few extra libraries)" OFF)
 
 option(WITH_RUY "Use ruy" ON)
 
-option(SLIMT_USE_INTERNAL_PCRE2 "Use external PCRE2, not system" OFF)
 option(USE_BUILTIN_SENTENCEPIECE "Use SentencePiece supplied as 3rd-party" ON)
 
-option(USE_AVX512 "Use AVX512" OFF)
-option(USE_AVX2 "Use AVX2" OFF)
-option(USE_SSSE3 "Use SSSE3" OFF)
 option(USE_SSE2 "Use SSE2" OFF)
 option(USE_NEON "Use NEON" OFF)
 
 option(BUILD_SHARED "Build shared libraries" ON)
 option(BUILD_STATIC "Build static libraries" ON)
-
-option(SLIMT_PACKAGE "Package for cmake, pkgconfig" OFF)
-option(SLIMT_PYTHON_LINK_STATIC
-       "link-method to produce python package (static/shared)" ON)
-option(SLIMT_GENERATED_UNIT_TESTS "Generate unit tests to run using Python" OFF)
 
 include(MacroEnsureOutOfSourceBuild)
 macro_ensure_out_of_source_build(
@@ -75,10 +65,8 @@ if(WITH_TCMALLOC)
   list(APPEND SLIMT_PRIVATE_LIBS ${TCMALLOC_LIBRARIES})
 endif(WITH_TCMALLOC)
 
-find_package(PCRE2 REQUIRED)
 add_subdirectory(3rd-party)
 
-list(APPEND SLIMT_PRIVATE_LIBS PCRE2::PCRE2)
 list(APPEND SLIMT_PUBLIC_LIBS SentencePiece::SentencePiece)
 
 if(NOT USE_BUILTIN_SENTENCEPIECE)
@@ -89,25 +77,10 @@ endif(NOT USE_BUILTIN_SENTENCEPIECE)
 list(APPEND SLIMT_COMPILE_DEFINITIONS SLIMT_HAS_RUY)
 list(APPEND SLIMT_PRIVATE_LIBS ruy)
 
-if(USE_AVX512)
-  list(APPEND SLIMT_COMPILE_DEFINITIONS USE_AVX512)
-  list(APPEND SLIMT_COMPILE_OPTIONS -mavx512f -mavx512dq -mavx512cd -mavx512bw)
-endif(USE_AVX512)
-
-if(USE_AVX2)
-  list(APPEND SLIMT_COMPILE_DEFINITIONS USE_AVX2)
-  list(APPEND SLIMT_COMPILE_OPTIONS -mavx2)
-endif(USE_AVX2)
-
 if(USE_SSE2)
   list(APPEND SLIMT_COMPILE_DEFINITIONS USE_SSE2)
   list(APPEND SLIMT_COMPILE_OPTIONS -msse2)
 endif(USE_SSE2)
-
-if(USE_SSSE3)
-  list(APPEND SLIMT_COMPILE_DEFINITIONS USE_SSSE3)
-  list(APPEND SLIMT_COMPILE_OPTIONS -mssse3)
-endif(USE_SSSE3)
 
 if(USE_NEON)
   list(APPEND SLIMT_COMPILE_DEFINITIONS USE_NEON)
@@ -154,20 +127,3 @@ if(UNIX)
 endif(UNIX)
 
 add_subdirectory(slimt)
-add_subdirectory(app)
-add_subdirectory(tests)
-
-if(BUILD_PYTHON)
-  if(USE_PYBIND11_SOURCE)
-    message(STATUS "Using pybind11 from source.")
-    add_subdirectory(3rd-party/pybind11)
-  else(USE_PYBIND11_SOURCE)
-    find_package(pybind11 REQUIRED)
-  endif(USE_PYBIND11_SOURCE)
-
-  add_subdirectory(bindings/python)
-endif(BUILD_PYTHON)
-
-if(BUILD_JNI)
-  add_subdirectory(bindings/java)
-endif(BUILD_JNI)

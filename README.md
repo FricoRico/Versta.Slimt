@@ -49,16 +49,11 @@ More information on the models are described in the following papers:
 The large-list of dependencies from bergamot-translator have currently been
 reduced to:
 
-* For `int8_t` matrix-multiply [intgemm](https://github.com/kpu/intgemm)
-  (`x86_64`) or [ruy](https://github.com/google/ruy) (`aarch64`) or
-  [xsimd](https://github.com/xtensor-stack/xsimd) via
-  [gemmology](https://github.com/mozilla/gemmology).
+* For `int8_t` matrix-multiply on every platform -
+  [ruy](https://github.com/google/ruy) (the sole compute backend).
 * For vocabulary - [sentencepiece](https://github.com/browsermt/sentencepiece). 
-* For sentence-splitting using regular-expressions
-  [PCRE2](https://github.com/PCRE2Project/pcre2).
-* For `sgemm` - Whatever BLAS provider is found via CMake (openblas,
-  intel-oneapimkl, cblas).  Feel free to provide
-  [hints](https://cmake.org/cmake/help/latest/module/FindBLAS.html#blas-lapack-vendors). 
+* Sentence-splitting has been moved out of this library (into the Rust caller);
+  PCRE2 is no longer a dependency.
 * [CLI11](https://github.com/CLIUtils/CLI11/) (only a dependency for cmdline) 
 
 Source code is made public where basic functionality (text-translation) works
@@ -80,21 +75,16 @@ dependencies. The following, being prepared towards linux distribution should
 work at the moment:
 
 ```bash
-# Configure to use xsimd via gemmology
+# Configure the lean build (single ruy backend, SSE2 on x86_64, NEON on arm64)
 ARGS=(
-    # Use gemmology
-    -DWITH_GEMMOLOGY=ON               
+    # On x86_64 machines enable SSE2.
+    -DUSE_SSE2=ON
 
-    # On x86_64 machines use the following to enable a faster matrix
-    # multiplication backend using SIMD. All of these can co-exist and dispatch
-    # on best detecting CPU at runtime.
-    -DUSE_AVX512=ON -DUSE_AVX2=ON -DUSE_SSSE3=ON -DUSE_SSE2=ON
-
-    # Uncomment below line, comment x86_64 above and use for aarch64, armv7+neon)
+    # Uncomment below line and comment x86_64 above for aarch64 / armv7+neon
     # -DUSE_NEON=ON 
 
-    # Use sentencepiece installed via system.
-    -DUSE_BUILTIN_SENTENCEPIECE=OFF        
+    # Use the bundled sentencepiece.
+    -DUSE_BUILTIN_SENTENCEPIECE=ON        
 
     # Exports slimtConfig.cmake (cmake) and slimt.pc.in (pkg-config)
     -DSLIMT_PACKAGE=ON 
