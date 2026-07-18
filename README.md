@@ -1,157 +1,166 @@
-# slimt
+# Versta.Leanmt
 
-**slimt** (_slɪm tiː_) is an inference frontend for
-[tiny](https://github.com/browsermt/students/tree/master/deen/ende.student.tiny11)
-[models](https://github.com/browsermt/students) trained as part of the
-[Bergamot project](https://browser.mt/).
+**Leanmt** is an Android-specific port of
+[slimt](https://github.com/jerinphilip/slimt), the lightweight inference
+frontend for tiny neural machine translation models. It lives on as a leaner, 
+mobile-oriented fork. This version also contains patches made by David Ventura's
+[fork](https://github.com/DavidVentura/slimt) of slimt.
+
+Where upstream slimt aims at desktop, Python and command-line usage, leanmt
+strips the project down to the parts that matter for shipping translation on
+Android: a small, dependency-light C++ inference core plus the JNI surface that
+lets it be called from Kotlin/Java. It is slimmed down, intended to use only
+with Firefox translation models. The name is a playful nod to its parent -
+*slimt* becomes *leanmt* ("lean machine translation").
+
+## Background
 
 [bergamot-translator](https://github.com/browsermt/bergamot-translator/) builds
-on top of [marian-dev](https://github.com/marian-nmt/marian-dev) and uses the
-inference code-path from marian-dev. While marian is a a capable neural network
-library with focus on machine translation, all the bells and whistles that come
-with it are not necessary to run inference on client-machines (e.g: autograd,
-multiple sequence-to-sequence architecture support, beam-search). For some use
-cases like an input-method engine doing translation (see
-[lemonade](https://github.com/jerinphilip/lemonade)) - single-thread operation
-existing along with other processes on the system suffices. This is the
-motivation for this transplant repository. There's not much novel here except
-easiness to wield. This repository is simply just the _tiny_ part of marian.
-Code is reused where possible.
+on top of [marian-dev](https://github.com/marian-nmt/marian-dev) and reuses
+marian's inference code-path. marian is a capable neural-network library focused
+on machine translation, but most of what it carries autograd, a wide range of
+sequence-to-sequence architectures, beam search is unnecessary for running
+inference on client machines. leanmt is just the *tiny* part of marian, retuned
+for on-device translation.
 
-This effort is inspired by contemporary efforts like
+The same approach inspired contemporary efforts such as
 [ggerganov/ggml](https://github.com/ggerganov/ggml) and
-[karpathy/llama2](https://github.com/karpathy/llama2.c). _tiny_ models roughly
-follow the [transformer architecture](https://arxiv.org/abs/1706.03762), with
-[Simpler Simple Recurrent Units](https://aclanthology.org/D19-5632/) (SSRU) in
-the decoder. The same models are used in Mozilla Firefox's [offline translation
-addon](https://addons.mozilla.org/en-US/firefox/addon/firefox-translations/).
+[karpathy/llama2.c](https://github.com/karpathy/llama2.c). The *tiny* models
+roughly follow the [transformer architecture](https://arxiv.org/abs/1706.03762)
+with [Simpler Simple Recurrent Units](https://aclanthology.org/D19-5632/)
+(SSRU) in the decoder, and are the models used by Mozilla Firefox's
+[offline translation addon](https://addons.mozilla.org/en-US/firefox/addon/firefox-translations/).
 
-Both `tiny` and `base` models have 6 encoder-layers and 2 decoder-layers, and
-for most existing pairs a vocabulary size of 32000 (with tied embeddings). The
-following table briefly summarizes some architectural differences between
-`tiny` and `base` models:
+## How leanmt differs from slimt
 
-| Variant | emb | ffn  | params | f32   | i8   |
-| ------- | --- | ---  | ------ | ----- | ---- |
-| `base`  | 512 | 2048 | 39.0M  | 149MB | 38MB |
-| `tiny`  | 256 | 1536 | 15.7M  | 61MB  | 17MB |
+leanmt is a deliberate slimdown of upstream slimt for the Android use case:
 
-The `i8` models, quantized to 8-bit and as small as 17MB is used to provide
-translation for Mozilla Firefox's offline translation addon, among other
-things.
+* **Android deployment focus.** Code and assets not relevant to shipping on
+  Android have been removed, keeping the tree small and the build fast.
+* **Single, embedded compute backend.** Matrix-multiply is hard-wired to
+  [ruy](https://github.com/google/ruy) (the sole `int8_t` backend on every
+  platform); the BLAS/intgemm/gemmology alternatives from upstream have been
+  dropped.
+* **NEON tuned.** SIMD paths target ARM NEON for on-device performance; x86
+  SSE2/AVX2 paths are retained for development and testing on the host.
+* **Self-contained vocabulary.** Vocabulary handling uses a bundled
+  [sentencepiece](https://github.com/browsermt/sentencepiece); sentence
+  splitting lives outside the library (in the calling Android/Kotlin layer).
 
-More information on the models are described in the following papers:
+The large dependency set of bergamot-translator is reduced to:
 
-* [From Research to Production and Back: Ludicrously Fast Neural Machine Translation](https://aclanthology.org/D19-5632)
-* [Edinburgh’s Submissions to the 2020 Machine Translation Efficiency Task](https://aclanthology.org/2020.ngt-1.26/)
+* [ruy](https://github.com/google/ruy) - the sole `int8_t` matrix-multiply
+  backend.
+* [sentencepiece](https://github.com/browsermt/sentencepiece) - vocabulary /
+  subword decoding.
 
-
-The large-list of dependencies from bergamot-translator have currently been
-reduced to:
-
-* For `int8_t` matrix-multiply on every platform -
-  [ruy](https://github.com/google/ruy) (the sole compute backend).
-* For vocabulary - [sentencepiece](https://github.com/browsermt/sentencepiece). 
-* Sentence-splitting has been moved out of this library (into the Rust caller);
-  PCRE2 is no longer a dependency.
-* [CLI11](https://github.com/CLIUtils/CLI11/) (only a dependency for cmdline) 
-
-Source code is made public where basic functionality (text-translation) works
-for English-German tiny models. Parity in features and speed with marian and
-bergamot-translator (where relevant) is a work-in-progress. Eventual support for
-`base` models are planned. Contributions are welcome and appreciated.
-
-
-## Getting started
-
-Clone with submodules.
+## Repository layout
 
 ```
-git clone --recursive https://github.com/jerinphilip/slimt.git
+src/              # the C++ inference library (namespace leanmt)
+  leanmt.hh        # umbrella header: Frontend + Model + Version
+  Frontend.hh/.cc  # translation API, batching, request/response
+  Model.hh/.cc     # model loading and decoding
+  Transformer.*    # encoder/decoder transformer blocks
+  TensorOps.*      # quantized matmul, SIMD (NEON/SSE) kernels
+  Simd.hh          # SIMD dispatch (vext namespace)
+  qmm/             # ruy-backed quantized matrix-multiply
+  simd/            # per-ISA SIMD implementations (neon, sse)
+third_party/      # bundled ruy and sentencepiece submodules
 ```
 
-Configure and build. `slimt` is still experimenting with CMake and
-dependencies. The following, being prepared towards linux distribution should
-work at the moment:
+Public headers install into `<prefix>/include/leanmt`, and the library target
+is exported as `leanmt` (with `leanmt::` namespace when packaging is enabled).
+
+## Building
+
+leanmt uses CMake and is meant to be consumed both as a native library in an
+Android build (via the NDK + JNI).
+
+### Desktop / host (development)
+
+Clone with submodules:
 
 ```bash
-# Configure the lean build (single ruy backend, SSE2 on x86_64, NEON on arm64)
+git clone --recursive https://github.com/FricoRico/Versta.Leanmt.git
+cd Versta.Leanmt
+```
+
+Configure and build. On an x86_64 host enable SSE2; on aarch64/armv7 with NEON
+use `-DUSE_NEON=ON`:
+
+```bash
 ARGS=(
-    # On x86_64 machines enable SSE2.
-    -DUSE_SSE2=ON
-
-    # Uncomment below line and comment x86_64 above for aarch64 / armv7+neon
-    # -DUSE_NEON=ON 
-
-    # Use the bundled sentencepiece.
-    -DUSE_BUILTIN_SENTENCEPIECE=ON        
-
-    # Exports slimtConfig.cmake (cmake) and slimt.pc.in (pkg-config)
-    -DSLIMT_PACKAGE=ON 
-
-    # Customize installation prefix if need be.
-    -DCMAKE_INSTALL_PREFIX=/usr/local
+    -DUSE_SSE2=ON            # or -DUSE_NEON=ON on ARM
+    -DCMAKE_BUILD_TYPE=Release
 )
 
-cmake -B build -S $PWD -DCMAKE_BUILD_TYPE=Release "${ARGS[@]}"
+cmake -B build -S $PWD "${ARGS[@]}"
 cmake --build build --target all
-
-# Require sudo since /usr/local is writable usually only by root.
-sudo cmake --build build --target install 
 ```
 
-The above run expects the packages `sentencepiece`, `xsimd` and a BLAS provider
-to come from the system's package manager. Examples of this in distributions
-include:
+This produces the `leanmt` shared/static library under `build/`.
+
+### Android (NDK + JNI)
+
+For on-device use, build `leanmt` with the Android NDK toolchain and expose it
+through the JNI bindings. A typical invocation points CMake at the NDK and
+selects an ARM ABI with NEON:
 
 ```bash
-# Debian based systems
-sudo apt-get install -y libxsimd-dev libsentencepiece-dev libopenblas-dev
+cmake -B build-android -S $PWD \
+    -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake \
+    -DANDROID_ABI=arm64-v8a \
+    -DANDROID_PLATFORM=android-24 \
+    -DUSE_NEON=ON \
+    -DCMAKE_BUILD_TYPE=Release
 
-# ArchLinux
-pacman -S openblas xsimd
-yay -S sentencepiece-git
+cmake --build build-android --target all
 ```
 
-Successful build generate two executables `slimt-cli` and `slimt-test` for
-command-line usage and testing respectively. 
+The resulting `libleanmt` is linked into the Android application and called from
+Kotlin/Java through the JNI layer shipped alongside this repository in the
+`Versta` packaging. Sentence-splitting and higher-level text handling are
+performed on the Kotlin side; leanmt handles model loading, encoding/decoding
+and the quantized inference.
 
-```bash
-build/bin/slimt-cli                           \
-    --root <path/to/folder>                   \
-    --model </relative/path/to/model>         \
-    --vocabulary </relative/path/to/vocab>    \
-    --shortlist </relative/path/to/shortlist>
+## Using the library
 
-build/slimt-test <test-name>
+The public API centers on the `leanmt::Frontend`, which turns a loaded
+`leanmt::Model` into a translator:
+
+```cpp
+#include "leanmt/leanmt.hh"
+
+leanmt::Model model;
+model.load(root, modelPath, vocabularyPath, shortlistPath);
+
+leanmt::Frontend frontend;
+leanmt::Request request{"Hello world"};
+leanmt::Response response = frontend.translate(model, request);
+std::cout << response.target.text << "\n";
 ```
-This is still very much a work in progress, towards being able to make
-[lemonade](https://github.com/jerinphilip/lemonade) available in distributions.
-Help is much appreciated here, please get in touch if you can help here.
 
-### Python
+See the headers under `leanmt/` for the full request/response and annotation
+surface (alignments, scores, sentence boundaries).
 
-Python bindings to the C++ code are available.  Python bindings provide a layer
-to download models and use-them via command line entrypoint `slimt` (the core
-slimt library only has the inference code).
+## Status
 
-```bash
-python3 -m venv env
-source env/bin/activate
-python3 -m pip install wheel
-python3 setup.py bdist_wheel
-python3 -m pip install dist/<wheel-name>.whl
+leanmt is a work-in-progress port. Core text translation works for the
+English–German tiny models and parity in features and speed with marian and
+bergamot-translator (where relevant) is ongoing. Support for `base` models is
+planned. Contributions are welcome.
 
-# Download en-de-tiny and de-en-tiny models.
-slimt download -m en-de-tiny
-slimt download -m de-en-tiny
-```
-Find an example of the built wheel running on colab below:
+## Credits & license
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/12wFMVwOTzOyRjoeWtett2DTDhwNAbvBZ?usp=sharing)
+leanmt is derived from
+[slimt](https://github.com/jerinphilip/slimt) by **Jerin Philip**
+(`jerinphilip@live.in`) and **George Tom** (`georg3tom@gmail.com`), including patches
+from **David Ventura**. Upstream slimt itself reuses code from
+[browsermt/bergamot-translator](https://github.com/browsermt/bergamot-translator)
+and [browsermt/marian-dev](https://github.com/browsermt/marian-dev).
 
-You may pass customizing cmake-variables via `CMAKE_ARGS` environment variable.
-
-```bash
-CMAKE_ARGS='-D...' python3 setup.py bdist_wheel
-```
+leanmt is free software, distributed under the GNU General Public License
+version 2 or (at your option) any later version. See `LICENSE` for the full text,
+exceptions and third-party attributions 
+(`browsermt/ssplit`, Apache-2.0; bergamot-translator / marian-dev, MPL-2.0).

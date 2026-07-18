@@ -1,6 +1,6 @@
 [submodule "deps/sentencepiece"]
-	path = 3rd-party/sentencepiece
+	path = third_party/sentencepiece
 	url = https://github.com/browsermt/sentencepiece.git
-[submodule "3rd-party/ruy"]
-	path = 3rd-party/ruy
+[submodule "third_party/ruy"]
+	path = third_party/ruy
 	url = https://github.com/google/ruy

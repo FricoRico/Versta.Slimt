@@ -48,7 +48,7 @@ traces/
 __pycache__
 *.pyc 
 
-slimt.egg-info
+leanmt.egg-info
 env
 dist
 
