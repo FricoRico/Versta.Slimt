@@ -260,22 +260,6 @@ class AnnotatedText {
   Encoding encoding_ = Encoding::Byte;
 };
 
-class WordIterator {
- public:
-  explicit WordIterator(const AnnotatedText &annotated)
-      : annotated_(annotated) {}
-  Range &operator*();
-  Range *operator->();
-  WordIterator &operator++();
-  bool has_next();
-
- private:
-  const AnnotatedText &annotated_;
-  size_t sentence_idx_ = 0;
-  size_t word_idx_ = 0;
-  Range range_;
-};
-
 // Returns a sequence length for a UTF-8 multi-byte sequence starting with the
 // character. Continuation bytes return 0. 1-byte, 2-byte, 3-byte, 4-byte
 // multisequences return their respective length for the start character.

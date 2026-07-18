@@ -42,7 +42,6 @@ Package<io::MmapFile> mmap_from(const Package<std::string> &package) {
       .vocabulary = maybe_mmap(package.vocabulary),                //
       .target_vocabulary = maybe_mmap(package.target_vocabulary),  //
       .shortlist = maybe_mmap(package.shortlist),                  //
-      .ssplit = maybe_mmap(package.ssplit),                        //
   };
 }
 
@@ -53,7 +52,6 @@ Package<View> view_from(const Package<io::MmapFile> &mmap) {
       .target_vocabulary = {mmap.target_vocabulary.data(),             //
                             mmap.target_vocabulary.size()},            //
       .shortlist = {mmap.shortlist.data(), mmap.shortlist.size()},     //
-      .ssplit = {mmap.ssplit.data(), mmap.ssplit.size()},              //
   };
 }
 
@@ -969,43 +967,5 @@ Histories Model::forward(const Input &input) const {
 
   return histories;
 }
-
-namespace preset {
-Model::Config tiny() {
-  // NOLINTBEGIN
-  Model::Config config{
-      .encoder_layers = 6,      //
-      .decoder_layers = 2,      //
-      .feed_forward_depth = 2,  //
-      .num_heads = 8,           //
-  };
-  // NOLINTEND
-  return config;
-}
-
-Model::Config base() {
-  // NOLINTBEGIN
-  Model::Config config{
-      .encoder_layers = 6,      //
-      .decoder_layers = 2,      //
-      .feed_forward_depth = 2,  //
-      .num_heads = 8,           //
-  };
-  // NOLINTEND
-  return config;
-}
-
-Model::Config nano() {
-  // NOLINTBEGIN
-  Model::Config config{
-      .encoder_layers = 4,      //
-      .decoder_layers = 2,      //
-      .feed_forward_depth = 2,  //
-      .num_heads = 8,           //
-  };
-  // NOLINTEND
-  return config;
-}
-}  // namespace preset
 
 }  // namespace slimt

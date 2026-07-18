@@ -38,7 +38,6 @@ struct Package {
   // separate `encoder_Wemb` / `decoder_Wemb` tensors in the model file.
   Field target_vocabulary;
   Field shortlist;
-  Field ssplit;
 };
 
 class SLIMT_EXPORT Model {
@@ -49,15 +48,6 @@ class SLIMT_EXPORT Model {
     size_t decoder_layers = 2;
     size_t feed_forward_depth = 2;
     size_t num_heads = 8;
-    template <class App>
-    void setup_onto(App &app) {
-      // clang-format off
-      app.add_option("--encoder-layers", encoder_layers, "Number of encoder layers");
-      app.add_option("--decoder-layers", decoder_layers, "Number of decoder layers");
-      app.add_option("--num-heads", num_heads, "Number of decoder layers");
-      app.add_option("--ffn-depth", decoder_layers, "Number of feedforward layers");
-      // clang-format on
-    }
     // NOLINTEND
   };
 
@@ -128,11 +118,5 @@ class SLIMT_EXPORT Model {
   Transformer transformer_;
   std::optional<ShortlistGenerator> shortlist_generator_;
 };
-
-namespace preset {
-SLIMT_EXPORT Model::Config tiny();
-SLIMT_EXPORT Model::Config base();
-SLIMT_EXPORT Model::Config nano();
-}  // namespace preset
 
 }  // namespace slimt

@@ -75,7 +75,6 @@ constexpr inline size_t operator+(size_t val, TypeClass typeClass) {
 
 enum class OGType : size_t {
   int8     = TypeClass::signed_type + 1u,
-  int16    = TypeClass::signed_type + 2u,
   int32    = TypeClass::signed_type + 4u,
   int64    = TypeClass::signed_type + 8u,
 
@@ -88,8 +87,7 @@ enum class OGType : size_t {
   float32  = TypeClass::float_type + 4u,
   float64  = TypeClass::float_type + 8u,
 
-  intgemm8      = TypeClass::signed_type + 1u + TypeClass::intgemm_type, // legacy int8 quantized matrices
-  intgemm16     = TypeClass::signed_type + 2u + TypeClass::intgemm_type // legacy int16 quantized matrices
+  intgemm8      = TypeClass::signed_type + 1u + TypeClass::intgemm_type // legacy int8 quantized matrices
 };
 
 // clang-format on
@@ -296,25 +294,6 @@ std::vector<io::Item> load_items(void* current) {
 
         set_item(item, std::move(aligned));
         item.type = Type::i8;
-
-        // This debug function exists here to inspect if need be.
-        auto debug = [&]() {
-          Tensor input_view;
-          View original = {
-              .data = ptr,                                         //
-              .size = static_cast<size_t>(headers[i].data_length)  //
-          };
-
-          input_view.load(original, item.type, item.shape, item.name);
-          std::cerr << "input" << input_view << "\n";
-
-          Tensor output_view;
-          output_view.load(item.view, item.type, item.shape, item.name);
-          std::cerr << "output" << output_view << "\n";
-          std::abort();
-        };
-
-        (void)debug;
       }
     } else {
       item.view = View{

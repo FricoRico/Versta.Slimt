@@ -19,8 +19,6 @@ class Tensor;
 
 class Shape;
 
-std::string checked_fpath();
-
 template <class Printable>
 std::string fmt(Printable &printable) {
   std::stringstream stream;

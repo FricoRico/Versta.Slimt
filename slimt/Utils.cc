@@ -209,11 +209,6 @@ void AverageMeter<Scalar>::record(Scalar point) {
   count_++;
 }
 
-const char *stringify(bool flag) {
-  // Converts 0/1 to "false"/"true"
-  return flag ? "true" : "false";
-}
-
 template class AverageMeter<float>;
 
 }  // namespace slimt

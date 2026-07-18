@@ -17,19 +17,6 @@ class Shortlist {
  public:
   explicit Shortlist(Words words) : words_(std::move(words)) {}
   const std::vector<Word>& words() const { return words_; }
-  Word reverse_map(int idx) { return words_[idx]; }
-
-  int try_forward_map(Word w_idx) {
-    auto first = std::lower_bound(words_.begin(), words_.end(), w_idx);
-    if (first != words_.end() && *first == w_idx) {
-      // Check if element not less than w_idx has been found
-      // and if equal to w_idx
-      // return coordinate if found
-      return static_cast<int>(std::distance(words_.begin(), first));
-    }
-    // return -1 if not found
-    return -1;
-  }
 
  private:
   // // [packed shortlist index] -> word index,

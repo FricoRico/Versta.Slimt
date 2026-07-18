@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.5.1...3.27)
+cmake_minimum_required(VERSION 3.10...3.27)
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-project(slimt CXX C)
+project(slimt VERSION 1.0.0 LANGUAGES CXX C)
 set(PROJECT_DESCRIPTION "Inference frontend for bergamot models.")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -92,38 +92,16 @@ set(CMAKE_C_FLAGS_PROFILE             "${CMAKE_C_FLAGS_RELEASE} -pg" CACHE STRIN
 set(CMAKE_EXE_LINKER_FLAGS_PROFILE    "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -pg" CACHE STRING "Flags used for linking binaries during profile builds." FORCE)
 set(CMAKE_SHARED_LINKER_FLAGS_PROFILE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}-pg" CACHE STRING "Flags used by the shared libraries linker during profile builds." FORCE)
 mark_as_advanced(
-  CMAKE_CXX_FLAGS_PROFILE 
-  CMAKE_C_FLAGS_PROFILE 
+  CMAKE_CXX_FLAGS_PROFILE
+  CMAKE_C_FLAGS_PROFILE
   CMAKE_EXE_LINKER_FLAGS_PROFILE
   CMAKE_SHARED_LINKER_FLAGS_PROFILE
 )
 # cmake-format: on
 
 message(STATUS "Project name: ${PROJECT_NAME}")
-set(PROJECT_VERSION_FILE ${CMAKE_CURRENT_SOURCE_DIR}/slimt.version)
-include(GetVersionFromFile)
+set(PROJECT_VERSION_STRING "${PROJECT_VERSION}")
+set(PROJECT_VERSION_STRING_FULL "v${PROJECT_VERSION}")
 message(STATUS "Project version: ${PROJECT_VERSION_STRING_FULL}")
-
-if(UNIX)
-  include(GNUInstallDirs)
-  # cmake-format: off
-  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-  set(CPACK_PACKAGE_CONTACT "Jerin Philip <jerinphilip@live.in>")
-  set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Jerin Philip")
-  set(CPACK_PACKAGE_DIRECTORY ${CMAKE_BINARY_DIR}/deb)
-  set(CPACK_GENERATOR "DEB")
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS libsentencepiece-dev)
-  set(CPACK_PACKAGE_NAME ${PROJECT_NAME})
-  set(CPACK_PACKAGE_FILE_NAME ${PROJECT_NAME})
-  set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION_STRING})
-  set(CPACK_DEBIAN_PACKAGE_NAME ${PROJECT_NAME})
-  set(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION_STRING}")
-  set(CPACK_PACKAGE_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
-  set(CPACK_PACKAGE_VERSION_MINOR ${PROJECT_VERSION_MINOR})
-  set(CPACK_PACKAGE_VERSION_PATCH ${PROJECT_VERSION_PATCH})
-  set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "slimt: Inference library for tiny translation models.")
-  # cmake-format: on
-  include(CPack)
-endif(UNIX)
 
 add_subdirectory(slimt)

@@ -11,8 +11,6 @@ namespace slimt {
 Tensor index_select(const Tensor& x, const Tensor& indices,
                     const std::string& name = "selected");
 
-void modify_mask_for_pad_tokens_in_attention(float* mask, size_t size);
-
 template <class Scalar>
 void transpose_10(const Scalar* in, size_t rows, size_t cols, Scalar* out);
 
@@ -76,7 +74,6 @@ void layer_norm_add(const float* a, const float* b, const float* scale,
 Tensor layer_norm_add(const Tensor& a, const Tensor& b, const Tensor& scale,
                       const Tensor& bias, float EPS = 1e-6F);  // NOLINT
 
-Tensor fast_select(Tensor& source, const std::vector<uint32_t>& indices);
 Tensor highway(const Tensor& x, const Tensor& y, const Tensor& g);
 
 }  // namespace slimt

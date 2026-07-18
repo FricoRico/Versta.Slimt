@@ -147,7 +147,6 @@ class Tensor {
   // This method is added omitting copy constructor so it's explicit it's a
   // copy.
   Tensor clone(const std::string &name = "") const;
-  Tensor transpose_2d();
 
   friend std::ostream &operator<<(std::ostream &out, const Tensor &tensor);
 

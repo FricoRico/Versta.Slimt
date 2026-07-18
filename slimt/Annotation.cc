@@ -190,28 +190,4 @@ int utf8_sequence_length(char c) {
   // character.
   return 0;
 }
-
-WordIterator &WordIterator::operator++() {
-  ++word_idx_;
-  if (word_idx_ >= annotated_.word_count(sentence_idx_)) {
-    ++sentence_idx_;
-    word_idx_ = 0;
-  }
-  return *this;
-}
-
-Range &WordIterator::operator*() {
-  range_ = annotated_.word_as_range(sentence_idx_, word_idx_);
-  return range_;
-}
-
-Range *WordIterator::operator->() {
-  range_ = annotated_.word_as_range(sentence_idx_, word_idx_);
-  return &range_;
-}
-
-bool WordIterator::has_next() {
-  return sentence_idx_ < annotated_.sentence_count() &&
-         word_idx_ < annotated_.word_count(sentence_idx_);
-}
 }  // namespace slimt

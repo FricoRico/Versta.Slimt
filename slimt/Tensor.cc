@@ -136,30 +136,6 @@ Tensor Tensor::clone(const std::string &name) const {
   return t;
 }
 
-Tensor Tensor::transpose_2d() {
-  Tensor transposed(type_, shape_.transpose(0, 1), name_ + "_transpose");
-  switch (type_) {
-    case Type::f32:
-      transpose_10(data<float>(), shape_.dim(-2), shape_.dim(-1),
-                   transposed.data<float>());
-      break;
-    case Type::i8:
-    case Type::ig8:
-      transpose_10(data<int8_t>(), shape_.dim(-2), shape_.dim(-1),
-                   transposed.data<int8_t>());
-      break;
-    case Type::i32:
-      transpose_10(data<int>(), shape_.dim(-2), shape_.dim(-1),
-                   transposed.data<int>());
-      break;
-    case Type::u32:
-      transpose_10(data<uint32_t>(), shape_.dim(-2), shape_.dim(-1),
-                   transposed.data<uint32_t>());
-      break;
-  }
-  return transposed;
-}
-
 std::ostream &operator<<(std::ostream &out, const Tensor &tensor) {
   out << "Tensor(";
   out << tensor.name_ << ", ";
