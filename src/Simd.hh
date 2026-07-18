@@ -84,6 +84,19 @@ void mul(const float* a, const float* b, size_t size, float* c) {
 }
 
 template <VExt Width>
+void mul_scalar(const float* a, float scalar, size_t size, float* c) {
+  using Element = VDatum<Width>;
+  const auto* va = reinterpret_cast<const Element*>(a);
+  Element vscalar(scalar);
+  size_t steps = size / Element::kWidth;
+
+  auto* vc = reinterpret_cast<Element*>(c);
+  for (size_t i = 0; i < steps; i++) {
+    vc[i] = Ops<Width>::mul(va[i], vscalar);
+  }
+}
+
+template <VExt Width>
 void relu(const float* a, size_t size, float* c) {
   using Element = VDatum<Width>;
   const auto* va = reinterpret_cast<const Element*>(a);

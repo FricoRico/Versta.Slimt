@@ -186,6 +186,13 @@ void mul(const float* a, const float* b, size_t size, float* c) {
 }
 
 void mul_scalar(const float* a, float scalar, size_t size, float* c) {
+#ifdef VEXT_W4_AVAILABLE
+  if (size % F32x4::kWidth == 0) {
+    vext::mul_scalar<VExt::w4>(a, scalar, size, c);
+    return;
+  }
+#endif
+
   for (size_t i = 0; i < size; i++) {
     c[i] = a[i] * scalar;
   }
