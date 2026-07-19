@@ -21,10 +21,8 @@ set(LEANMT_PUBLIC_HEADERS
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/Version.hh.in
                ${CMAKE_CURRENT_BINARY_DIR}/Version.hh @ONLY)
 
-# Export.hh is generated after the library target `leanmt` is defined (see
-# generate_export_header below).
-set(LEANMT_GENERATED_HEADERS ${CMAKE_CURRENT_BINARY_DIR}/Version.hh
-                            ${CMAKE_CURRENT_BINARY_DIR}/Export.hh)
+# Version.hh is configured above.
+set(LEANMT_GENERATED_HEADERS ${CMAKE_CURRENT_BINARY_DIR}/Version.hh)
 
 set(LEANMT_PRIVATE_HEADERS
     QMM.hh
@@ -55,33 +53,9 @@ set(LEANMT_SOURCES
 
 set(LEANMT_LIBRARIES)
 
-if(BUILD_SHARED)
-  list(APPEND LEANMT_LIBRARIES leanmt-shared)
-  add_library(leanmt-shared SHARED ${LEANMT_SOURCES} ${LEANMT_PUBLIC_HEADERS}
-                                  ${LEANMT_PRIVATE_HEADERS})
-  set_target_properties(
-    leanmt-shared
-    PROPERTIES VERSION ${PROJECT_VERSION_STRING}
-               SOVERSION 0
-               EXPORT_NAME leanmt-shared)
-
-endif(BUILD_SHARED)
-
-if(BUILD_STATIC)
-  add_library(leanmt-static STATIC ${LEANMT_SOURCES} ${LEANMT_PUBLIC_HEADERS}
-                                  ${LEANMT_PRIVATE_HEADERS})
-  list(APPEND LEANMT_LIBRARIES leanmt-static)
-  add_library(leanmt ALIAS leanmt-static)
-endif(BUILD_STATIC)
-
-if(NOT BUILD_STATIC)
-  add_library(leanmt ALIAS leanmt-shared)
-endif(NOT BUILD_STATIC)
-
-# Once the library is defined, it's possible to generate_export_header.
-include(GenerateExportHeader)
-generate_export_header(leanmt BASE_NAME leanmt EXPORT_FILE_NAME
-                       "${CMAKE_CURRENT_BINARY_DIR}/Export.hh")
+add_library(leanmt STATIC ${LEANMT_SOURCES} ${LEANMT_PUBLIC_HEADERS}
+                        ${LEANMT_PRIVATE_HEADERS})
+list(APPEND LEANMT_LIBRARIES leanmt)
 
 foreach(LEANMT_LIB IN LISTS LEANMT_LIBRARIES)
   set_target_properties(${LEANMT_LIB} PROPERTIES OUTPUT_NAME "leanmt")

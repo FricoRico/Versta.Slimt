@@ -9,7 +9,6 @@
 
 #include "Batcher.hh"
 #include "Cache.hh"
-#include "Export.hh"
 #include "Response.hh"
 #include "Types.hh"
 
@@ -19,7 +18,7 @@ class Model;
 struct Options;
 struct Response;
 
-struct LEANMT_EXPORT Config {
+struct Config {
   // NOLINTBEGIN
   size_t max_words = 1024;
   size_t cache_size = 1024;
@@ -29,7 +28,7 @@ struct LEANMT_EXPORT Config {
   // NOLINTEND
 };
 
-class LEANMT_EXPORT Blocking {
+class Blocking {
  public:
   explicit Blocking(const Config &config);
   std::vector<Response> translate(const Ptr<Model> &model,
@@ -47,7 +46,7 @@ class LEANMT_EXPORT Blocking {
   size_t id_ = 0;
 };
 
-class LEANMT_EXPORT Async {
+class Async {
  public:
   explicit Async(const Config &config);
   ~Async();

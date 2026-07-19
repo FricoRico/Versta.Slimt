@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "Annotation.hh"
-#include "Export.hh"
 #include "Io.hh"
 #include "Shortlist.hh"
 #include "TextProcessor.hh"
@@ -40,9 +39,9 @@ struct Package {
   Field shortlist;
 };
 
-class LEANMT_EXPORT Model {
+class Model {
  public:
-  struct LEANMT_EXPORT Config {
+  struct Config {
     // NOLINTBEGIN
     size_t encoder_layers = 6;
     size_t decoder_layers = 2;

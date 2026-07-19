@@ -12,9 +12,6 @@ set(CMAKE_VISIBILITY_INLINE_HIDDEN YES)
 option(USE_SSE2 "Use SSE2" OFF)
 option(USE_NEON "Use NEON" OFF)
 
-option(BUILD_SHARED "Build shared libraries" ON)
-option(BUILD_STATIC "Build static libraries" ON)
-
 set(LEANMT_COMPILE_OPTIONS
     -Wall
     -Wextra
